@@ -19,7 +19,7 @@ public class Gemini extends ListenerAdapter {
         if(command.equalsIgnoreCase("ask")){
             String prompt = event.getOption("prompt", OptionMapping::getAsString);
             try {
-                String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyC5W1JUijGZeSbVAWFj5gmHOyYQ29vlf78";
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyBPOErHLPc9r0G2b1_D8PtkjrA9jEkWvI0";
                 String jsonInput = String.format("""
                 {
                   "contents": [
