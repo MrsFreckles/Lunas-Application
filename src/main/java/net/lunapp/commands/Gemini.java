@@ -18,6 +18,12 @@ public class Gemini extends ListenerAdapter {
         String command = event.getName();
         if(command.equalsIgnoreCase("ask")){
             String prompt = event.getOption("prompt", OptionMapping::getAsString);
+            String parts = event.getOption("role", OptionMapping::getAsString);
+            Boolean ephemeral = event.getOption("ephemeral", OptionMapping::getAsBoolean);
+
+            if(parts == null) parts = "user";
+            if(ephemeral == null) ephemeral = false;
+
             try {
                 String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyBPOErHLPc9r0G2b1_D8PtkjrA9jEkWvI0";
                 String jsonInput = String.format("""
@@ -29,12 +35,12 @@ public class Gemini extends ListenerAdapter {
                     "role": "user",
                     "parts": [
                       {
-                        "text": "Du bist eine Hilfsbereite Ki"
+                        "text": "%s"
                       }
                     ]
                   },
                 }
-                """, prompt);
+                """, prompt, parts);
 
                 HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setRequestMethod("POST");
@@ -54,9 +60,11 @@ public class Gemini extends ListenerAdapter {
                         .getJSONObject(0)
                         .getString("text");
 
-                event.reply(splitString(responseText, 2000)[0]).queue();
+
+
+                event.reply(splitString(responseText, 2000)[0]).setEphemeral(ephemeral).queue();
                 for (int i = 1; i < splitString(responseText, 2000).length; i++) {
-                    event.getHook().sendMessage(splitString(responseText, 20)[i]).queue();
+                    event.getHook().sendMessage(splitString(responseText, 20)[i]).setEphemeral(ephemeral).queue();
                 }
 
             } catch (Exception e) {

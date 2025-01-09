@@ -50,7 +50,9 @@ public class Main {
         jda.updateCommands().addCommands(
                 Commands.slash("ping", "Ping Pong!"),
                 Commands.slash("ask", "Ask Gemini").
-                        addOption(OptionType.STRING, "prompt", "Prompt Gemini with a question", true)
+                        addOption(OptionType.STRING, "prompt", "Prompt Gemini with a question", true).
+                        addOption(OptionType.STRING, "role", "Give gemini a role", false).
+                        addOption(OptionType.BOOLEAN, "ephemeral", "Sends the reply as a message only you can see", false)
         ).queue();
     }
 
