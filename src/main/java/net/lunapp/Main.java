@@ -14,10 +14,9 @@ import org.reflections.scanners.SubTypesScanner;
 import org.reflections.scanners.TypeAnnotationsScanner;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.*;
 
 public class Main {
     /*
@@ -25,10 +24,20 @@ public class Main {
      */
     public static JDA jda;
     private static final FileUtils fileUtils = new FileUtils();
+    private static String token;
 
 
     public static void main(String[] args) {
-        JDABuilder builder = JDABuilder.createDefault("MTMyMjI3MzI0NzMxNTc1OTE3Nw.GgBlPm.a6OWygb3aUaAd_NUhS9UY3LNVMrufjC1YJcDag");
+        Properties properties = new Properties();
+        try (FileInputStream fis = new FileInputStream("config.properties")) {
+            properties.load(fis);
+            token = properties.getProperty("token");
+            System.out.println("Discord Token: " + token);
+        } catch (IOException e) {
+            System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
+        }
+
+        JDABuilder builder = JDABuilder.createDefault(token);
 
         builder.disableCache(CacheFlag.MEMBER_OVERRIDES, CacheFlag.VOICE_STATE);
         builder.setBulkDeleteSplittingEnabled(false);
