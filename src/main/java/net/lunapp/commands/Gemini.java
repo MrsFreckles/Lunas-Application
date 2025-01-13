@@ -25,7 +25,7 @@ public class Gemini extends ListenerAdapter {
         try (FileInputStream fis = new FileInputStream("config.properties")) {
             properties.load(fis);
             gemini = properties.getProperty("gemini");
-            System.out.println("Gemini key: " + gemini);
+            //System.out.println("Gemini key: " + gemini);
         } catch (IOException e) {
             System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
         }

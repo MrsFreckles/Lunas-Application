@@ -32,7 +32,7 @@ public class Main {
         try (FileInputStream fis = new FileInputStream("config.properties")) {
             properties.load(fis);
             token = properties.getProperty("token");
-            System.out.println("Discord Token: " + token);
+            //System.out.println("Discord Token: " + token);
         } catch (IOException e) {
             System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
         }
