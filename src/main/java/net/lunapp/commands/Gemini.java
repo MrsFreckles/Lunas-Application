@@ -29,6 +29,7 @@ public class Gemini extends ListenerAdapter {
         } catch (IOException e) {
             System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
         }
+
         if(command.equalsIgnoreCase("ask")){
             String prompt = event.getOption("prompt", OptionMapping::getAsString);
             String parts = event.getOption("role", OptionMapping::getAsString);
