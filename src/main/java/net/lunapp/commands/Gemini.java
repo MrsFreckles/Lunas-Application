@@ -7,15 +7,28 @@ import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 import org.jetbrains.annotations.NotNull;
 import org.json.JSONObject;
 
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Properties;
 
 @Command
 public class Gemini extends ListenerAdapter {
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event){
         String command = event.getName();
+        String gemini = "";
+
+        Properties properties = new Properties();
+        try (FileInputStream fis = new FileInputStream("config.properties")) {
+            properties.load(fis);
+            gemini = properties.getProperty("gemini");
+            //System.out.println("Gemini key: " + gemini);
+        } catch (IOException e) {
+            System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
+        }
         if(command.equalsIgnoreCase("ask")){
             String prompt = event.getOption("prompt", OptionMapping::getAsString);
             String parts = event.getOption("role", OptionMapping::getAsString);
@@ -25,7 +38,7 @@ public class Gemini extends ListenerAdapter {
             if(ephemeral == null) ephemeral = false;
 
             try {
-                String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyBPOErHLPc9r0G2b1_D8PtkjrA9jEkWvI0";
+                String url = gemini;
                 String jsonInput = String.format("""
                 {
                   "contents": [
