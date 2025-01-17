@@ -85,7 +85,6 @@ public class Gemini extends ListenerAdapter {
             int end = Math.min((i + 1) * maxLength, length);
             parts[i] = text.substring(start, end);
         }
-
         return parts;
     }
 }
