@@ -139,10 +139,10 @@ public class Watchlist extends ListenerAdapter {
         int end = Math.min(start + 10, media.size());
 
         if (media.isEmpty()) {
-            embed.addField("Your watchlist is empty!", "", true);
+            embed.addField("Your watchlist is empty!", "", false);
         } else {
             for (int i = start; i < end; i++) {
-                embed.addField(media.get(i), source.get(i), true);
+                embed.addField(media.get(i), source.get(i), false);
             }
         }
 
@@ -168,10 +168,10 @@ public class Watchlist extends ListenerAdapter {
         int end = Math.min(start + 10, media.size());
 
         if (media.isEmpty()) {
-            embed.addField("Your watchlist is empty!", "", true);
+            embed.addField("Your watchlist is empty!", "", false);
         } else {
             for (int i = start; i < end; i++) {
-                embed.addField(media.get(i), source.get(i), true);
+                embed.addField(media.get(i), source.get(i), false);
             }
         }
 
