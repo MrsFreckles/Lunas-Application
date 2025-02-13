@@ -67,6 +67,7 @@ public class Main {
                         .addOption(OptionType.STRING, "edit", "Edit a show in your watchlist", false)
                         .addOption(OptionType.STRING, "newname", "New name for the show", false)
                         .addOption(OptionType.STRING, "newsource", "New source for the show", false)
+                        .addOption(OptionType.BOOLEAN, "clear", "Clear the entire watchlist", false)
         ).queue();
     }
 
