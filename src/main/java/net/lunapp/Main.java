@@ -4,6 +4,8 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.interactions.IntegrationType;
+import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -55,12 +57,12 @@ public class Main {
      */
     private static void addCommands() {
         jda.updateCommands().addCommands(
-                Commands.slash("ping", "Ping Pong!"),
-                Commands.slash("ask", "Ask Gemini")
+                Commands.slash("ping", "Ping Pong!").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL),
+                Commands.slash("ask", "Ask Gemini").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
                         .addOption(OptionType.STRING, "prompt", "Prompt Gemini with a question", true)
                         .addOption(OptionType.STRING, "role", "Give gemini a role", false)
                         .addOption(OptionType.BOOLEAN, "ephemeral", "Sends the reply as a message only you can see", false),
-                Commands.slash("watchlist", "Have a look at the watchlist")
+                Commands.slash("watchlist", "Have a look at the watchlist").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
                         .addOption(OptionType.STRING, "add", "Add a show to your watchlist", false)
                         .addOption(OptionType.STRING, "remove", "Remove a show from your watchlist", false)
                         .addOption(OptionType.STRING, "source", "Specify the source of the show", false)
