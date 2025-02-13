@@ -22,6 +22,7 @@ import java.util.Map;
 public class Watchlist extends ListenerAdapter {
 
     private static final String WATCHLIST_FILE = "watchlist.json";
+    private static final String ADMIN_USER_ID = "464424249877331969";
     private ArrayList<String> media = new ArrayList<>();
     private ArrayList<String> source = new ArrayList<>();
 
@@ -32,6 +33,8 @@ public class Watchlist extends ListenerAdapter {
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event) {
         String command = event.getName();
+        String userId = event.getUser().getId();
+
         if (command.equalsIgnoreCase("watchlist")) {
             String addMedia = event.getOption("add", OptionMapping::getAsString);
             String removeMedia = event.getOption("remove", OptionMapping::getAsString);
@@ -39,19 +42,27 @@ public class Watchlist extends ListenerAdapter {
             String newName = event.getOption("newname", OptionMapping::getAsString);
             String newSource = event.getOption("newsource", OptionMapping::getAsString);
 
-            if (addMedia != null) {
-                String mediaSource = event.getOption("source", OptionMapping::getAsString);
-                if (mediaSource == null || mediaSource.isEmpty()) {
-                    mediaSource = "none";
+            if (userId.equals(ADMIN_USER_ID)) {
+                if (addMedia != null) {
+                    String mediaSource = event.getOption("source", OptionMapping::getAsString);
+                    if (mediaSource == null || mediaSource.isEmpty()) {
+                        mediaSource = "none";
+                    }
+                    addMedia(addMedia, mediaSource);
+                    event.reply("Added \"" + addMedia + "\" to your watchlist with source \"" + mediaSource + "\".").queue();
+                } else if (removeMedia != null) {
+                    removeMedia(removeMedia, event);
+                } else if (editMedia != null) {
+                    editMedia(editMedia, newName, newSource, event);
+                } else {
+                    printWatchlist(event);
                 }
-                addMedia(addMedia, mediaSource);
-                event.reply("Added \"" + addMedia + "\" to your watchlist with source \"" + mediaSource + "\".").queue();
-            } else if (removeMedia != null) {
-                removeMedia(removeMedia, event);
-            } else if (editMedia != null) {
-                editMedia(editMedia, newName, newSource, event);
             } else {
-                printWatchlist(event);
+                if (addMedia != null || removeMedia != null || editMedia != null) {
+                    event.reply("You do not have permission to modify the watchlist.").queue();
+                } else {
+                    printWatchlist(event);
+                }
             }
         }
     }
