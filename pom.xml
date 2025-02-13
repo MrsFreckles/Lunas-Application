@@ -44,13 +44,11 @@
         </plugins>
     </build>
     <dependencies>
-        <!--  https://mvnrepository.com/artifact/net.dv8tion/JDA  -->
+        <!-- Other dependencies -->
         <dependency>
             <groupId>net.dv8tion</groupId>
             <artifactId>JDA</artifactId>
             <version>5.3.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libs/JDA-5.3.0-withDependencies.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>org.reflections</groupId>
@@ -66,6 +64,23 @@
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
             <version>20231013</version>
+        </dependency>
+        <!-- JPA and Hibernate dependencies -->
+        <dependency>
+            <groupId>javax.persistence</groupId>
+            <artifactId>javax.persistence-api</artifactId>
+            <version>2.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <version>5.4.32.Final</version>
+        </dependency>
+        <!-- H2 Database dependency -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.1.214</version>
         </dependency>
     </dependencies>
 </project>
