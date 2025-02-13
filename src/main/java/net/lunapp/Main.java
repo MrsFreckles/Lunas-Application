@@ -26,7 +26,6 @@ public class Main {
     private static final FileUtils fileUtils = new FileUtils();
     private static String token;
 
-
     public static void main(String[] args) {
         Properties properties = new Properties();
         try (FileInputStream fis = new FileInputStream("config.properties")) {
@@ -54,14 +53,20 @@ public class Main {
     /*
      * Adds all commands to the bot
      */
-    private static void addCommands(){
-
+    private static void addCommands() {
         jda.updateCommands().addCommands(
                 Commands.slash("ping", "Ping Pong!"),
-                Commands.slash("ask", "Ask Gemini").
-                        addOption(OptionType.STRING, "prompt", "Prompt Gemini with a question", true).
-                        addOption(OptionType.STRING, "role", "Give gemini a role", false).
-                        addOption(OptionType.BOOLEAN, "ephemeral", "Sends the reply as a message only you can see", false)
+                Commands.slash("ask", "Ask Gemini")
+                        .addOption(OptionType.STRING, "prompt", "Prompt Gemini with a question", true)
+                        .addOption(OptionType.STRING, "role", "Give gemini a role", false)
+                        .addOption(OptionType.BOOLEAN, "ephemeral", "Sends the reply as a message only you can see", false),
+                Commands.slash("watchlist", "Have a look at the watchlist")
+                        .addOption(OptionType.STRING, "add", "Add a show to your watchlist", false)
+                        .addOption(OptionType.STRING, "remove", "Remove a show from your watchlist", false)
+                        .addOption(OptionType.STRING, "source", "Specify the source of the show", false)
+                        .addOption(OptionType.STRING, "edit", "Edit a show in your watchlist", false)
+                        .addOption(OptionType.STRING, "newname", "New name for the show", false)
+                        .addOption(OptionType.STRING, "newsource", "New source for the show", false)
         ).queue();
     }
 
