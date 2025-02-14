@@ -43,6 +43,16 @@ public class Gemini extends ListenerAdapter {
             String role = event.getOption("role", OptionMapping::getAsString);
             Boolean ephemeral = event.getOption("ephemeral", OptionMapping::getAsBoolean);
 
+            prompt = prompt.replace("\"", "\\\"")
+                    .replace("\n", " ")
+                    .replace("\r", " ")
+                    .replace("\t", " ");
+
+            role = role.replace("\"", "\\\"")
+                    .replace("\n", " ")
+                    .replace("\r", " ")
+                    .replace("\t", " ");
+
             if (role == null) role = "user";
             if (ephemeral == null) ephemeral = false;
 
@@ -51,6 +61,7 @@ public class Gemini extends ListenerAdapter {
                     Button.danger("cancel_ask", "Cancel")
             ).queue();
 
+            String finalPrompt = prompt;
             new Thread(() -> {
                 EntityManager em = emf.createEntityManager();
                 try {
@@ -71,7 +82,7 @@ public class Gemini extends ListenerAdapter {
                         ]
                       }
                     }
-                    """, prompt, finalRole);
+                    """, finalPrompt, finalRole);
 
                     HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                     conn.setRequestMethod("POST");

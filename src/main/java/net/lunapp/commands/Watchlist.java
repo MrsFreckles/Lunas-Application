@@ -54,9 +54,9 @@ public class Watchlist extends ListenerAdapter {
                     addMedia(addMedia, mediaSource);
                     event.reply("Added \"" + addMedia + "\" to your watchlist with source \"" + mediaSource + "\".").queue();
                 } else if (removeMedia != null) {
-                    removeMedia(removeMedia, event);
+                    removeMediaByNumber(removeMedia, event);
                 } else if (editMedia != null) {
-                    editMedia(editMedia, newName, newSource, event);
+                    editMediaByNumber(editMedia, newName, newSource, event);
                 } else if (clear != null && clear) {
                     event.reply("Are you sure you want to clear the entire watchlist? This action cannot be undone.")
                             .addActionRow(
@@ -64,12 +64,14 @@ public class Watchlist extends ListenerAdapter {
                                     Button.secondary("clear_cancel", "No, cancel")
                             ).queue();
                 } else {
+                    event.deferReply().queue(); // Show loading animation
                     printWatchlist(event, 0);
                 }
             } else {
                 if (addMedia != null || removeMedia != null || editMedia != null || (clear != null && clear)) {
                     event.reply("You do not have permission to modify the watchlist.").queue();
                 } else {
+                    event.deferReply().queue(); // Show loading animation
                     printWatchlist(event, 0);
                 }
             }
@@ -81,6 +83,7 @@ public class Watchlist extends ListenerAdapter {
         String[] idParts = event.getComponentId().split(":");
         if (idParts[0].equals("watchlist")) {
             int page = Integer.parseInt(idParts[1]);
+            event.deferEdit().queue(); // Show loading animation
             printWatchlist(event, page);
         } else if (event.getComponentId().equals("clear_confirm")) {
             clearWatchlist(event);
@@ -95,31 +98,39 @@ public class Watchlist extends ListenerAdapter {
         saveWatchlist();
     }
 
-    public void removeMedia(String mediaToRemove, SlashCommandInteractionEvent event) {
-        int index = media.indexOf(mediaToRemove);
-        if (index != -1) {
-            media.remove(index);
-            source.remove(index);
-            saveWatchlist();
-            event.reply("Removed \"" + mediaToRemove + "\" from your watchlist.").queue();
-        } else {
-            event.reply("Error: \"" + mediaToRemove + "\" was not found in your watchlist.").queue();
+    public void removeMediaByNumber(String mediaNumber, SlashCommandInteractionEvent event) {
+        try {
+            int index = Integer.parseInt(mediaNumber) - 1;
+            if (index >= 0 && index < media.size()) {
+                String removedMedia = media.remove(index);
+                source.remove(index);
+                saveWatchlist();
+                event.reply("Removed \"" + removedMedia + "\" from your watchlist.").queue();
+            } else {
+                event.reply("Error: Invalid number \"" + mediaNumber + "\".").queue();
+            }
+        } catch (NumberFormatException e) {
+            event.reply("Error: \"" + mediaNumber + "\" is not a valid number.").queue();
         }
     }
 
-    public void editMedia(String mediaToEdit, String newName, String newSource, SlashCommandInteractionEvent event) {
-        int index = media.indexOf(mediaToEdit);
-        if (index != -1) {
-            if (newName != null && !newName.isEmpty()) {
-                media.set(index, newName);
+    public void editMediaByNumber(String mediaNumber, String newName, String newSource, SlashCommandInteractionEvent event) {
+        try {
+            int index = Integer.parseInt(mediaNumber) - 1;
+            if (index >= 0 && index < media.size()) {
+                if (newName != null && !newName.isEmpty()) {
+                    media.set(index, newName);
+                }
+                if (newSource != null && !newSource.isEmpty()) {
+                    source.set(index, newSource);
+                }
+                saveWatchlist();
+                event.reply("Edited media number " + mediaNumber + " in your watchlist.").queue();
+            } else {
+                event.reply("Error: Invalid number \"" + mediaNumber + "\".").queue();
             }
-            if (newSource != null && !newSource.isEmpty()) {
-                source.set(index, newSource);
-            }
-            saveWatchlist();
-            event.reply("Edited \"" + mediaToEdit + "\" in your watchlist.").queue();
-        } else {
-            event.reply("Error: \"" + mediaToEdit + "\" was not found in your watchlist.").queue();
+        } catch (NumberFormatException e) {
+            event.reply("Error: \"" + mediaNumber + "\" is not a valid number.").queue();
         }
     }
 
@@ -134,6 +145,7 @@ public class Watchlist extends ListenerAdapter {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("Watchlist");
         embed.setColor(new Color(133, 201, 0));
+        embed.setDescription("Here is your current watchlist:");
 
         int start = page * 10;
         int end = Math.min(start + 10, media.size());
@@ -142,20 +154,20 @@ public class Watchlist extends ListenerAdapter {
             embed.addField("Your watchlist is empty!", "", false);
         } else {
             for (int i = start; i < end; i++) {
-                embed.addField(media.get(i), source.get(i), false);
+                embed.addField((i + 1) + ". " + media.get(i), "Source: " + source.get(i), false);
             }
         }
 
         int totalPages = (int) Math.ceil((double) media.size() / 10);
         if (totalPages > 1) {
             embed.setFooter("Page " + (page + 1) + " of " + totalPages);
-            event.replyEmbeds(embed.build())
-                    .addActionRow(
+            event.getHook().editOriginalEmbeds(embed.build())
+                    .setActionRow(
                             Button.primary("watchlist:" + (page - 1), "Previous").withDisabled(page == 0),
                             Button.primary("watchlist:" + (page + 1), "Next").withDisabled(page == totalPages - 1)
                     ).queue();
         } else {
-            event.replyEmbeds(embed.build()).queue();
+            event.getHook().editOriginalEmbeds(embed.build()).queue();
         }
     }
 
@@ -163,6 +175,7 @@ public class Watchlist extends ListenerAdapter {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("Watchlist");
         embed.setColor(new Color(133, 201, 0));
+        embed.setDescription("Here is your current watchlist:");
 
         int start = page * 10;
         int end = Math.min(start + 10, media.size());
@@ -171,7 +184,7 @@ public class Watchlist extends ListenerAdapter {
             embed.addField("Your watchlist is empty!", "", false);
         } else {
             for (int i = start; i < end; i++) {
-                embed.addField(media.get(i), source.get(i), false);
+                embed.addField((i + 1) + ". " + media.get(i), "Source: " + source.get(i), false);
             }
         }
 
