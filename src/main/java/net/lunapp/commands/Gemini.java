@@ -210,6 +210,13 @@ public class Gemini extends ListenerAdapter {
 
     public void handleAskCommand(String prompt, String role, Boolean ephemeral, Message.Attachment attachment, MessageReceivedEvent event) {
         System.out.println("handleAskCommand called with prompt: " + prompt); // Debug-Ausgabe
+        long temp;
+        if (event != null) {
+                Message loadingMessage = event.getChannel().sendMessage("<a:loading:1344750264703520799> \u200E thinking.. ( ´△｀)").complete();
+                temp = loadingMessage.getIdLong();
+            } else {
+                temp = 0;
+            }
 
         final String gemini;
         final String roleGemini;
@@ -232,6 +239,7 @@ public class Gemini extends ListenerAdapter {
 
         final String finalRole = role;
 
+        long finalTemp = temp;
         new Thread(() -> {
             StringBuilder sb = new StringBuilder();
             for (Messages message : userPrompts) {
@@ -295,8 +303,9 @@ public class Gemini extends ListenerAdapter {
 
                     userPrompts.add(new Messages(responseText, "model"));
 
+
                     if (event != null) {
-                        event.getChannel().sendMessage(splitString(responseText, 2000)[0]).queue();
+                        event.getChannel().editMessageById(temp, splitString(responseText, 2000)[0]).queue();
                         for (int i = 1; i < splitString(responseText, 2000).length; i++) {
                             event.getChannel().sendMessage(splitString(responseText, 2000)[i]).queue();
                         }
@@ -391,7 +400,8 @@ class Messages {
         this.message = message.replace("\"", "\\\"")
                 .replace("\n", " ")
                 .replace("\r", " ")
-                .replace("\t", " ");
+                .replace("\t", " ")
+                .replace("_", "\\_");
         this.author = author;
     }
 

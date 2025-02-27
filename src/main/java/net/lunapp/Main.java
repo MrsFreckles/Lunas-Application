@@ -4,7 +4,6 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Activity;
-import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.IntegrationType;
@@ -95,10 +94,12 @@ public class Main {
             @Override
             public void onMessageReceived(@NotNull MessageReceivedEvent event) {
                 if (listenerEnabled) {
+                    if (event.getAuthor().isBot()) {
+                        return; // Ignoriere Nachrichten vom Bot selbst
+                    }
                     String message = event.getMessage().getContentRaw().toLowerCase();
                     if (message.contains("mitsuki") || message.contains("koga")) {
-                        String prompt = message.replaceAll(".*(mitsuki|koga)", "").trim();
-                        gemini.handleAskCommand(prompt, null, false, null, event);
+                        gemini.handleAskCommand(event.getMessage().getContentRaw() + " Person who just talked to you: " + event.getMessage().getAuthor().getName(), null, false, null, event);
                     }
                 }
             }
@@ -136,10 +137,8 @@ public class Main {
             if (file.isDirectory()) {
                 findClasses(file, packageName + "." + file.getName(), classes);
             } else if (file.getName().endsWith(".class")) {
-                String className = packageName + "." + file.getName().replace(".class", "");
                 try {
-                    Class<?> clazz = Class.forName(className);
-                    classes.add(clazz);
+                    classes.add(Class.forName(packageName + '.' + file.getName().substring(0, file.getName().length() - 6)));
                 } catch (ClassNotFoundException e) {
                     e.printStackTrace();
                 }
