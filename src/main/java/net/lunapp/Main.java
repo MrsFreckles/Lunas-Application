@@ -4,12 +4,16 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.IntegrationType;
 import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
+import net.lunapp.commands.Gemini;
 import org.jetbrains.annotations.NotNull;
 import org.reflections.Reflections;
 import org.reflections.scanners.SubTypesScanner;
@@ -21,19 +25,17 @@ import java.io.IOException;
 import java.util.*;
 
 public class Main {
-    /*
-     * @param jda The JDA instance
-     */
     public static JDA jda;
     private static final FileUtils fileUtils = new FileUtils();
     private static String token;
+    private static boolean listenerEnabled = false;
+    private static Gemini gemini;
 
     public static void main(String[] args) {
         Properties properties = new Properties();
         try (FileInputStream fis = new FileInputStream("config.properties")) {
             properties.load(fis);
             token = properties.getProperty("token");
-            //System.out.println("Discord Token: " + token);
         } catch (IOException e) {
             System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
         }
@@ -48,20 +50,20 @@ public class Main {
         builder.setAutoReconnect(true);
         jda = builder.build();
 
+        gemini = new Gemini();
+
         addEvents();
         addCommands();
     }
 
-    /*
-     * Adds all commands to the bot
-     */
     private static void addCommands() {
         jda.updateCommands().addCommands(
                 Commands.slash("ping", "Ping Pong!").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL),
                 Commands.slash("ask", "Ask Gemini").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
                         .addOption(OptionType.STRING, "prompt", "Prompt Gemini with a question", true)
                         .addOption(OptionType.STRING, "role", "Give gemini a role", false)
-                        .addOption(OptionType.BOOLEAN, "ephemeral", "Sends the reply as a message only you can see", false),
+                        .addOption(OptionType.BOOLEAN, "ephemeral", "Sends the reply as a message only you can see", false)
+                        .addOption(OptionType.ATTACHMENT, "file", "Upload a file", false),
                 Commands.slash("watchlist", "Have a look at the watchlist").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
                         .addOption(OptionType.STRING, "add", "Add a show to your watchlist", false)
                         .addOption(OptionType.STRING, "remove", "Remove a show from your watchlist", false)
@@ -69,7 +71,9 @@ public class Main {
                         .addOption(OptionType.STRING, "edit", "Edit a show in your watchlist", false)
                         .addOption(OptionType.STRING, "newname", "New name for the show", false)
                         .addOption(OptionType.STRING, "newsource", "New source for the show", false)
-                        .addOption(OptionType.BOOLEAN, "clear", "Clear the entire watchlist", false)
+                        .addOption(OptionType.BOOLEAN, "clear", "Clear the entire watchlist", false),
+                Commands.slash("newchat", "Reset the chats log history").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL),
+                Commands.slash("togglelistener", "Toggle the listener for 'Mitsuki' or 'Koga'").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
         ).queue();
     }
 
@@ -86,6 +90,27 @@ public class Main {
                 e.printStackTrace();
             }
         }
+
+        jda.addEventListener(new ListenerAdapter() {
+            @Override
+            public void onMessageReceived(@NotNull MessageReceivedEvent event) {
+                if (listenerEnabled) {
+                    String message = event.getMessage().getContentRaw().toLowerCase();
+                    if (message.contains("mitsuki") || message.contains("koga")) {
+                        String prompt = message.replaceAll(".*(mitsuki|koga)", "").trim();
+                        gemini.handleAskCommand(prompt, null, false, null, event);
+                    }
+                }
+            }
+        });
+    }
+
+    public static void toggleListener() {
+        listenerEnabled = !listenerEnabled;
+    }
+
+    public static boolean isListenerEnabled() {
+        return listenerEnabled;
     }
 
     @NotNull
