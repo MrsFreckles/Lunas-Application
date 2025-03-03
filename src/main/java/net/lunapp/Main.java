@@ -27,7 +27,7 @@ public class Main {
     public static JDA jda;
     private static final FileUtils fileUtils = new FileUtils();
     private static String token;
-    private static boolean listenerEnabled = false;
+    private static boolean listenerEnabled = true;
     private static Gemini gemini;
 
     public static void main(String[] args) {
@@ -43,7 +43,7 @@ public class Main {
 
         builder.disableCache(CacheFlag.MEMBER_OVERRIDES, CacheFlag.VOICE_STATE);
         builder.setBulkDeleteSplittingEnabled(false);
-        builder.setActivity(Activity.listening("ur mom"));
+        builder.setActivity(Activity.playing("ur mom"));
         builder.setStatus(OnlineStatus.DO_NOT_DISTURB);
         builder.enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_MESSAGES, GatewayIntent.GUILD_MESSAGE_REACTIONS, GatewayIntent.GUILD_VOICE_STATES, GatewayIntent.MESSAGE_CONTENT);
         builder.setAutoReconnect(true);
