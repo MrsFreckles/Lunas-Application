@@ -326,13 +326,24 @@ public class Gemini extends ListenerAdapter {
                     }
 
                     if (attachment != null) {
-                        File file = new File(attachment.getFileName());
-                        try (InputStream in = new URL(attachment.getProxyUrl()).openStream()) {
-                            Files.copy(in, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            String fileUri = uploadFileToGemini(apiKey, file, attachment.getContentType());
+                        try {
+                            String fileName = attachment.getFileName();
+                            String suffix = "";
+                            int dotIndex = fileName.lastIndexOf('.');
+                            if (dotIndex >= 0) {
+                                suffix = fileName.substring(dotIndex);
+                            } else {
+                                suffix = ".tmp";
+                            }
+                            File tempFile = File.createTempFile("discordUpload", suffix);
+                            try (InputStream in = new URL(attachment.getProxyUrl()).openStream()) {
+                                Files.copy(in, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            }
+                            String fileUri = uploadFileToGemini(apiKey, tempFile, attachment.getContentType());
                             if (fileUri != null) {
                                 event.getHook().sendMessage("File uploaded: " + fileUri).queue();
                             }
+                            tempFile.delete();
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
@@ -468,13 +479,24 @@ public class Gemini extends ListenerAdapter {
                     }
 
                     if (attachment != null) {
-                        File file = new File(attachment.getFileName());
-                        try (InputStream in = new URL(attachment.getProxyUrl()).openStream()) {
-                            Files.copy(in, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            String fileUri = uploadFileToGemini(apiKey, file, attachment.getContentType());
+                        try {
+                            String fileName = attachment.getFileName();
+                            String suffix = "";
+                            int dotIndex = fileName.lastIndexOf('.');
+                            if (dotIndex >= 0) {
+                                suffix = fileName.substring(dotIndex);
+                            } else {
+                                suffix = ".tmp";
+                            }
+                            File tempFile = File.createTempFile("discordUpload", suffix);
+                            try (InputStream in = new URL(attachment.getProxyUrl()).openStream()) {
+                                Files.copy(in, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            }
+                            String fileUri = uploadFileToGemini(apiKey, tempFile, attachment.getContentType());
                             if (fileUri != null) {
                                 event.getChannel().sendMessage("File uploaded: " + fileUri).queue();
                             }
+                            tempFile.delete();
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
@@ -530,6 +552,9 @@ public class Gemini extends ListenerAdapter {
     /**
      * Lädt eine Datei zum Gemini-Service hoch.
      *
+     * Hier wird ein Multipart/Related-Request verwendet, der den JSON-Header und
+     * den Dateiinhalt als separaten Part übermittelt.
+     *
      * @param apiKey   Der API-Schlüssel.
      * @param file     Die Datei, die hochgeladen werden soll.
      * @param mimeType Der MIME-Typ der Datei.
@@ -540,22 +565,58 @@ public class Gemini extends ListenerAdapter {
         URL url = new URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + apiKey);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
+        String boundary = "----GeminiBoundary" + System.currentTimeMillis();
+        conn.setRequestProperty("Content-Type", "multipart/related; boundary=" + boundary);
         conn.setRequestProperty("X-Goog-Upload-Command", "start, upload, finalize");
-        conn.setRequestProperty("X-Goog-Upload-Header-Content-Length", String.valueOf(file.length()));
-        conn.setRequestProperty("X-Goog-Upload-Header-Content-Type", mimeType);
-        conn.setRequestProperty("Content-Type", "application/json");
         conn.setDoOutput(true);
 
-        // Erstelle JSON-Objekt für den Header
+        // Erstelle den JSON-Header
         JSONObject headerObj = new JSONObject();
         JSONObject fileObj = new JSONObject();
         fileObj.put("display_name", file.getName());
         headerObj.put("file", fileObj);
+        String headerJson = headerObj.toString();
 
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(headerObj.toString().getBytes(StandardCharsets.UTF_8));
-            os.write(Files.readAllBytes(file.toPath()));
+        String lineBreak = "\r\n";
+        String boundaryPrefix = "--" + boundary;
+
+        // Baue den Multipart-Body mithilfe eines ByteArrayOutputStream
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+
+        // Erster Part: JSON-Header
+        dos.writeBytes(boundaryPrefix + lineBreak);
+        dos.writeBytes("Content-Type: application/json; charset=UTF-8" + lineBreak);
+        dos.writeBytes(lineBreak);
+        dos.writeBytes(headerJson + lineBreak);
+
+        // Zweiter Part: Dateiinhalt
+        dos.writeBytes(boundaryPrefix + lineBreak);
+        dos.writeBytes("Content-Type: " + mimeType + lineBreak);
+        dos.writeBytes("Content-Disposition: attachment; filename=\"" + file.getName() + "\"" + lineBreak);
+        dos.writeBytes(lineBreak);
+        // Dateiinhalt schreiben
+        FileInputStream fis = new FileInputStream(file);
+        byte[] buffer = new byte[4096];
+        int bytesRead;
+        while ((bytesRead = fis.read(buffer)) != -1) {
+            dos.write(buffer, 0, bytesRead);
         }
+        fis.close();
+        dos.writeBytes(lineBreak);
+
+        // Abschließende Boundary
+        dos.writeBytes(boundaryPrefix + "--" + lineBreak);
+        dos.flush();
+        byte[] multipartBody = baos.toByteArray();
+        dos.close();
+
+        // Setze die Content-Length des Requests
+        conn.setFixedLengthStreamingMode(multipartBody.length);
+        OutputStream os = conn.getOutputStream();
+        os.write(multipartBody);
+        os.flush();
+        os.close();
 
         int responseCode = conn.getResponseCode();
         if (responseCode == 200) {
@@ -572,6 +633,8 @@ public class Gemini extends ListenerAdapter {
             throw new IOException("Error uploading file: " + errorResponse);
         }
     }
+
+
 
     /**
      * Lädt die Konfiguration aus der Datei config.properties.
