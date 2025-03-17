@@ -1,65 +1,74 @@
 package net.lunapp.commands;
 
-import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import net.lunapp.Command;
-import net.lunapp.Main;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 import net.dv8tion.jda.api.interactions.components.buttons.Button;
+import net.lunapp.Command;
+import net.lunapp.Main;
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import org.json.JSONArray;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 
+/**
+ * Der Gemini-Command verarbeitet Anfragen via SlashCommands und Nachrichten,
+ * speichert den Chatverlauf (Kurzzeit- und Langzeitspeicher) und kommuniziert
+ * mit einem externen Gemini-Service.
+ */
 @Command
 public class Gemini extends ListenerAdapter {
+
     private final List<Messages> userPrompts = new ArrayList<>();
     private final List<String> unicodeFaces = new ArrayList<>();
     private static final String SHORT_TERM_MEMORY_FILE = "short_term_memory.json";
     private static final String LONG_TERM_MEMORY_FILE = "long_term_memory.json";
 
+    /**
+     * Konstruktor. Lädt Unicode-Faces aus der Konfiguration und den Kurzzeitspeicher.
+     */
     public Gemini() {
         loadUnicodeFaces();
         loadMemory();
     }
 
+    /**
+     * Lädt Unicode-Gesichter aus der Datei config.properties.
+     */
     private void loadUnicodeFaces() {
-        Properties properties = new Properties();
-        try (FileInputStream fis = new FileInputStream("config.properties")) {
-            properties.load(fis);
-            String faces = properties.getProperty("unicodeFaces");
-            if (faces != null) {
-                for (String face : faces.split(",")) {
-                    unicodeFaces.add(face.trim());
-                }
+        Properties properties = loadConfigProperties();
+        String faces = properties.getProperty("unicodeFaces");
+        if (faces != null) {
+            for (String face : faces.split(",")) {
+                unicodeFaces.add(face.trim());
             }
-        } catch (IOException e) {
-            System.err.println("Error loading config.properties: " + e.getMessage());
         }
     }
 
+    /**
+     * Lädt den Kurzzeitspeicher (userPrompts) aus der JSON-Datei.
+     */
     private void loadMemory() {
         try {
-            if (Files.exists(Paths.get(SHORT_TERM_MEMORY_FILE))) {
-                String content = Files.readString(Paths.get(SHORT_TERM_MEMORY_FILE));
+            Path memoryPath = Paths.get(SHORT_TERM_MEMORY_FILE);
+            if (Files.exists(memoryPath)) {
+                String content = Files.readString(memoryPath);
                 JSONArray jsonArray = new JSONArray(content);
                 for (int i = 0; i < jsonArray.length(); i++) {
                     JSONObject jsonObject = jsonArray.getJSONObject(i);
-                    userPrompts.add(new Messages(jsonObject.getString("message"), jsonObject.getString("author")));
+                    userPrompts.add(new Messages(jsonObject.getString("message"),
+                            jsonObject.getString("author")));
                 }
             }
         } catch (IOException e) {
@@ -67,6 +76,9 @@ public class Gemini extends ListenerAdapter {
         }
     }
 
+    /**
+     * Speichert den Kurzzeitspeicher (userPrompts) in eine JSON-Datei.
+     */
     private void saveMemory() {
         try {
             JSONArray jsonArray = new JSONArray();
@@ -76,17 +88,28 @@ public class Gemini extends ListenerAdapter {
                 jsonObject.put("author", message.getAuthor());
                 jsonArray.put(jsonObject);
             }
-            Files.writeString(Paths.get(SHORT_TERM_MEMORY_FILE), jsonArray.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(Paths.get(SHORT_TERM_MEMORY_FILE),
+                    jsonArray.toString(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             System.err.println("Error saving short term memory: " + e.getMessage());
         }
     }
 
+    /**
+     * Aktualisiert den Langzeitspeicher. Wird ein Text übergeben, der bereits existiert,
+     * wird er bei remove=true gelöscht. Andernfalls wird der Text hinzugefügt.
+     *
+     * @param text   Der zu speichernde Text.
+     * @param remove Flag, ob der Text entfernt werden soll.
+     */
     private void updateLongTermMemory(String text, boolean remove) {
         try {
             JSONArray jsonArray;
-            if (Files.exists(Paths.get(LONG_TERM_MEMORY_FILE))) {
-                String content = Files.readString(Paths.get(LONG_TERM_MEMORY_FILE));
+            Path longTermPath = Paths.get(LONG_TERM_MEMORY_FILE);
+            if (Files.exists(longTermPath)) {
+                String content = Files.readString(longTermPath);
                 jsonArray = new JSONArray(content);
             } else {
                 jsonArray = new JSONArray();
@@ -109,16 +132,26 @@ public class Gemini extends ListenerAdapter {
             } else {
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put("id", jsonArray.length() + 1);
-                jsonObject.put("text", text.replace("\"", "\\\""));
+                jsonObject.put("text", text);
                 jsonArray.put(jsonObject);
             }
 
-            Files.writeString(Paths.get(LONG_TERM_MEMORY_FILE), jsonArray.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(longTermPath,
+                    jsonArray.toString(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             System.err.println("Error updating long term memory: " + e.getMessage());
         }
     }
 
+    /**
+     * Berechnet die Ähnlichkeit zweier Texte basierend auf gemeinsamen Wörtern.
+     *
+     * @param text1 Erster Text.
+     * @param text2 Zweiter Text.
+     * @return Verhältnis der übereinstimmenden Wörter zur maximalen Wortanzahl.
+     */
     private double calculateSimilarity(String text1, String text2) {
         String[] words1 = text1.split("\\s+");
         String[] words2 = text2.split("\\s+");
@@ -132,10 +165,14 @@ public class Gemini extends ListenerAdapter {
                 }
             }
         }
-
         return (double) matches / Math.max(words1.length, words2.length);
     }
 
+    /**
+     * Verarbeitet Slash-Command-Interaktionen.
+     *
+     * @param event Das SlashCommandInteractionEvent.
+     */
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event) {
         String command = event.getName();
@@ -145,7 +182,6 @@ public class Gemini extends ListenerAdapter {
             String role = event.getOption("role", OptionMapping::getAsString);
             Boolean ephemeral = event.getOption("ephemeral", OptionMapping::getAsBoolean);
             Message.Attachment attachment = event.getOption("file", OptionMapping::getAsAttachment);
-
             handleAskCommand(event, prompt, role, ephemeral, attachment);
         } else if (command.equalsIgnoreCase("newchat")) {
             userPrompts.clear();
@@ -153,39 +189,52 @@ public class Gemini extends ListenerAdapter {
             event.reply("Chat log has been reset.").setEphemeral(true).queue();
         } else if (command.equalsIgnoreCase("togglelistener")) {
             Main.toggleListener();
-            event.reply("Listener has been " + (Main.isListenerEnabled() ? "enabled" : "disabled") + ".").setEphemeral(true).queue();
+            event.reply("Listener has been " + (Main.isListenerEnabled() ? "enabled" : "disabled") + ".")
+                    .setEphemeral(true)
+                    .queue();
         }
     }
 
+    /**
+     * Verarbeitet den "ask"-Befehl von Slash-Commands.
+     *
+     * @param event      Das SlashCommandInteractionEvent.
+     * @param prompt     Die Benutzeranfrage.
+     * @param role       Die gewünschte Rolle.
+     * @param ephemeral  Ob die Antwort nur für den Benutzer sichtbar sein soll.
+     * @param attachment Mögliche Dateianlage.
+     */
     public void handleAskCommand(SlashCommandInteractionEvent event, String prompt, String role, Boolean ephemeral, Message.Attachment attachment) {
-        if (ephemeral == null) ephemeral = false; // Set default value if null
-
-        if (event != null) {
-            event.deferReply(ephemeral).addActionRow(
-                    Button.danger("cancel_ask", "Cancel")
-            ).queue();
+        if (ephemeral == null) {
+            ephemeral = false;
         }
 
+        if (event != null) {
+            event.deferReply(ephemeral)
+                    .addActionRow(Button.danger("cancel_ask", "Cancel"))
+                    .queue();
+        }
         handleAskCommand(prompt, role, ephemeral, attachment, event);
     }
 
+    /**
+     * Gemeinsame Logik zur Verarbeitung von "ask"-Befehlen (SlashCommand-Version).
+     *
+     * @param prompt     Die Benutzeranfrage.
+     * @param role       Die gewünschte Rolle.
+     * @param ephemeral  Ob die Antwort nur für den Benutzer sichtbar sein soll.
+     * @param attachment Mögliche Dateianlage.
+     * @param event      Das zugehörige SlashCommandInteractionEvent.
+     */
     public void handleAskCommand(String prompt, String role, Boolean ephemeral, Message.Attachment attachment, SlashCommandInteractionEvent event) {
-        final String gemini;
-        final String roleGemini;
-        final String apiKey;
+        Properties properties = loadConfigProperties();
+        String gemini = properties.getProperty("gemini");
+        String roleGemini = properties.getProperty("roleGemini");
+        String apiKey = properties.getProperty("apiKey");
 
-        Properties properties = new Properties();
-        try (FileInputStream fis = new FileInputStream("config.properties")) {
-            properties.load(fis);
-            gemini = properties.getProperty("gemini");
-            roleGemini = properties.getProperty("roleGemini");
-            apiKey = properties.getProperty("apiKey");
-        } catch (IOException e) {
-            System.err.println("Error loading config.properties: " + e.getMessage());
-            return;
+        if (role == null) {
+            role = roleGemini;
         }
-
-        if (role == null) role = roleGemini; // Set default role if null
 
         userPrompts.add(new Messages(prompt, "user"));
         if (userPrompts.size() > 20) {
@@ -196,41 +245,44 @@ public class Gemini extends ListenerAdapter {
         final String finalRole = role;
 
         new Thread(() -> {
-            StringBuilder sb = new StringBuilder();
+            // Baue den "contents"-Array der Konversation
+            JSONArray contents = new JSONArray();
             for (Messages message : userPrompts) {
-                sb.append(String.format("""
-            {
-              "role": "%s",
-              "parts": [
-                {"text": "%s"}
-              ]
-            },
-            """, message.getAuthor(), message.getMessage()));
+                JSONObject msgObj = new JSONObject();
+                msgObj.put("role", message.getAuthor());
+                JSONArray parts = new JSONArray();
+                JSONObject partObj = new JSONObject();
+                partObj.put("text", message.getMessage());
+                parts.put(partObj);
+                msgObj.put("parts", parts);
+                contents.put(msgObj);
             }
 
+            // Erstelle systemInstruction-Objekt
+            JSONObject systemInstruction = new JSONObject();
+            systemInstruction.put("role", "user");
+            JSONArray sysParts = new JSONArray();
+            JSONObject sysPart = new JSONObject();
+            sysPart.put("text", finalRole);
+            sysParts.put(sysPart);
+            systemInstruction.put("parts", sysParts);
+
+            // Erstelle generationConfig-Objekt
+            JSONObject generationConfig = new JSONObject();
+            generationConfig.put("temperature", 1);
+            generationConfig.put("topK", 40);
+            generationConfig.put("topP", 0.95);
+            generationConfig.put("maxOutputTokens", 10000);
+            generationConfig.put("responseMimeType", "text/plain");
+
+            // Erstelle das finale JSON-Payload
+            JSONObject payload = new JSONObject();
+            payload.put("contents", contents);
+            payload.put("systemInstruction", systemInstruction);
+            payload.put("generationConfig", generationConfig);
+
             try {
-                String jsonInput = String.format("""
-            {
-              "contents": [
-                %s
-              ],
-              "systemInstruction": {
-                 "role": "user",
-                 "parts": [
-                   {
-                     "text": "%s"
-                   }
-                 ]
-               },
-               "generationConfig": {
-                 "temperature": 1,
-                 "topK": 40,
-                 "topP": 0.95,
-                 "maxOutputTokens": 10000,
-                 "responseMimeType": "text/plain"
-               }
-            }
-            """, sb.toString(), finalRole);
+                String jsonInput = payload.toString();
 
                 HttpURLConnection conn = (HttpURLConnection) new URL(gemini).openConnection();
                 conn.setRequestMethod("POST");
@@ -256,17 +308,20 @@ public class Gemini extends ListenerAdapter {
                     userPrompts.add(new Messages(responseText, "model"));
                     saveMemory();
 
+                    String[] parts = splitString(responseText, 2000);
                     if (event != null) {
-                        event.getHook().editOriginal(splitString(responseText, 2000)[0]).setComponents().queue();
-                        for (int i = 1; i < splitString(responseText, 2000).length; i++) {
-                            event.getHook().sendMessage(splitString(responseText, 2000)[i]).queue();
+                        event.getHook().editOriginal(parts[0]).setComponents().queue();
+                        for (int i = 1; i < parts.length; i++) {
+                            event.getHook().sendMessage(parts[i]).queue();
                         }
                     }
 
                     if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke")) {
                         updateLongTermMemory(prompt, false);
                         if (event != null) {
-                            event.getHook().editOriginal(event.getHook().retrieveOriginal().complete().getContentRaw() + "\n-# " + prompt).queue();
+                            String updatedContent = event.getHook().retrieveOriginal().complete().getContentRaw()
+                                    + "\n-# " + prompt;
+                            event.getHook().editOriginal(updatedContent).queue();
                         }
                     }
 
@@ -298,31 +353,32 @@ public class Gemini extends ListenerAdapter {
         }).start();
     }
 
+    /**
+     * Verarbeitet den "ask"-Befehl, wenn er als normale Nachricht (MessageReceivedEvent) auftritt.
+     *
+     * @param prompt     Die Benutzeranfrage.
+     * @param role       Die gewünschte Rolle.
+     * @param ephemeral  Ob die Antwort nur für den Benutzer sichtbar sein soll.
+     * @param attachment Mögliche Dateianlage.
+     * @param event      Das MessageReceivedEvent.
+     */
     public void handleAskCommand(String prompt, String role, Boolean ephemeral, Message.Attachment attachment, MessageReceivedEvent event) {
-        long temp;
+        long loadingMessageId = 0;
         if (event != null) {
-            Message loadingMessage = event.getChannel().sendMessage("<a:loading:1344750264703520799> \u200E thinking.. ( ´△｀)").complete();
-            temp = loadingMessage.getIdLong();
-        } else {
-            temp = 0;
+            Message loadingMessage = event.getChannel()
+                    .sendMessage("<a:loading:1344750264703520799> \u200E thinking.. ( ´△｀)")
+                    .complete();
+            loadingMessageId = loadingMessage.getIdLong();
         }
 
-        final String gemini;
-        final String roleGemini;
-        final String apiKey;
+        Properties properties = loadConfigProperties();
+        String gemini = properties.getProperty("gemini");
+        String roleGemini = properties.getProperty("roleGemini");
+        String apiKey = properties.getProperty("apiKey");
 
-        Properties properties = new Properties();
-        try (FileInputStream fis = new FileInputStream("config.properties")) {
-            properties.load(fis);
-            gemini = properties.getProperty("gemini");
-            roleGemini = properties.getProperty("roleGemini");
-            apiKey = properties.getProperty("apiKey");
-        } catch (IOException e) {
-            System.err.println("Error loading config.properties: " + e.getMessage());
-            return;
+        if (role == null) {
+            role = roleGemini;
         }
-
-        if (role == null) role = roleGemini; // Set default role if null
 
         userPrompts.add(new Messages(prompt, "user"));
         if (userPrompts.size() > 20) {
@@ -331,44 +387,43 @@ public class Gemini extends ListenerAdapter {
         saveMemory();
 
         final String finalRole = role;
-        long finalTemp = temp;
+        long finalLoadingMessageId = loadingMessageId;
 
         new Thread(() -> {
-            StringBuilder sb = new StringBuilder();
+            JSONArray contents = new JSONArray();
             for (Messages message : userPrompts) {
-                sb.append(String.format("""
-            {
-              "role": "%s",
-              "parts": [
-                {"text": "%s"}
-              ]
-            },
-            """, message.getAuthor(), message.getMessage()));
+                JSONObject msgObj = new JSONObject();
+                msgObj.put("role", message.getAuthor());
+                JSONArray parts = new JSONArray();
+                JSONObject partObj = new JSONObject();
+                partObj.put("text", message.getMessage());
+                parts.put(partObj);
+                msgObj.put("parts", parts);
+                contents.put(msgObj);
             }
 
+            JSONObject systemInstruction = new JSONObject();
+            systemInstruction.put("role", "user");
+            JSONArray sysParts = new JSONArray();
+            JSONObject sysPart = new JSONObject();
+            sysPart.put("text", finalRole);
+            sysParts.put(sysPart);
+            systemInstruction.put("parts", sysParts);
+
+            JSONObject generationConfig = new JSONObject();
+            generationConfig.put("temperature", 1);
+            generationConfig.put("topK", 40);
+            generationConfig.put("topP", 0.95);
+            generationConfig.put("maxOutputTokens", 10000);
+            generationConfig.put("responseMimeType", "text/plain");
+
+            JSONObject payload = new JSONObject();
+            payload.put("contents", contents);
+            payload.put("systemInstruction", systemInstruction);
+            payload.put("generationConfig", generationConfig);
+
             try {
-                String jsonInput = String.format("""
-            {
-              "contents": [
-                %s
-              ],
-              "systemInstruction": {
-                 "role": "user",
-                 "parts": [
-                   {
-                     "text": "%s"
-                   }
-                 ]
-               },
-               "generationConfig": {
-                 "temperature": 1,
-                 "topK": 40,
-                 "topP": 0.95,
-                 "maxOutputTokens": 10000,
-                 "responseMimeType": "text/plain"
-               }
-            }
-            """, sb.toString(), finalRole);
+                String jsonInput = payload.toString();
 
                 HttpURLConnection conn = (HttpURLConnection) new URL(gemini).openConnection();
                 conn.setRequestMethod("POST");
@@ -394,10 +449,11 @@ public class Gemini extends ListenerAdapter {
                     userPrompts.add(new Messages(responseText, "model"));
                     saveMemory();
 
+                    String[] parts = splitString(responseText, 2000);
                     if (event != null) {
-                        event.getChannel().editMessageById(temp, splitString(responseText, 2000)[0]).queue();
-                        for (int i = 1; i < splitString(responseText, 2000).length; i++) {
-                            event.getChannel().sendMessage(splitString(responseText, 2000)[i]).queue();
+                        event.getChannel().editMessageById(finalLoadingMessageId, parts[0]).queue();
+                        for (int i = 1; i < parts.length; i++) {
+                            event.getChannel().sendMessage(parts[i]).queue();
                         }
                     }
 
@@ -405,7 +461,9 @@ public class Gemini extends ListenerAdapter {
                         updateLongTermMemory(prompt, false);
                         if (event != null) {
                             long messageId = event.getChannel().getLatestMessageIdLong();
-                            event.getChannel().editMessageById(messageId, event.getChannel().retrieveMessageById(messageId).complete().getContentRaw() + "\n-# " + prompt).queue();
+                            String updatedContent = event.getChannel().retrieveMessageById(messageId)
+                                    .complete().getContentRaw() + "\n-# " + prompt;
+                            event.getChannel().editMessageById(messageId, updatedContent).queue();
                         }
                     }
 
@@ -437,6 +495,11 @@ public class Gemini extends ListenerAdapter {
         }).start();
     }
 
+    /**
+     * Behandelt Button-Interaktionen (z. B. "Cancel" beim "ask"-Befehl).
+     *
+     * @param event Das ButtonInteractionEvent.
+     */
     @Override
     public void onButtonInteraction(@NotNull ButtonInteractionEvent event) {
         if (event.getComponentId().equals("cancel_ask")) {
@@ -445,12 +508,17 @@ public class Gemini extends ListenerAdapter {
         }
     }
 
+    /**
+     * Teilt einen langen Text in mehrere Teile auf, die jeweils höchstens maxLength Zeichen lang sind.
+     *
+     * @param text      Der zu teilende Text.
+     * @param maxLength Maximale Zeichenlänge pro Teil.
+     * @return Array mit den Textteilen.
+     */
     public static String[] splitString(String text, int maxLength) {
         int length = text.length();
         int numberOfParts = (int) Math.ceil((double) length / maxLength);
-
         String[] parts = new String[numberOfParts];
-
         for (int i = 0; i < numberOfParts; i++) {
             int start = i * maxLength;
             int end = Math.min((i + 1) * maxLength, length);
@@ -459,8 +527,18 @@ public class Gemini extends ListenerAdapter {
         return parts;
     }
 
+    /**
+     * Lädt eine Datei zum Gemini-Service hoch.
+     *
+     * @param apiKey   Der API-Schlüssel.
+     * @param file     Die Datei, die hochgeladen werden soll.
+     * @param mimeType Der MIME-Typ der Datei.
+     * @return Die URI der hochgeladenen Datei.
+     * @throws IOException Falls ein Fehler beim Hochladen auftritt.
+     */
     private String uploadFileToGemini(String apiKey, File file, String mimeType) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + apiKey).openConnection();
+        URL url = new URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + apiKey);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("X-Goog-Upload-Command", "start, upload, finalize");
         conn.setRequestProperty("X-Goog-Upload-Header-Content-Length", String.valueOf(file.length()));
@@ -468,8 +546,14 @@ public class Gemini extends ListenerAdapter {
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setDoOutput(true);
 
+        // Erstelle JSON-Objekt für den Header
+        JSONObject headerObj = new JSONObject();
+        JSONObject fileObj = new JSONObject();
+        fileObj.put("display_name", file.getName());
+        headerObj.put("file", fileObj);
+
         try (OutputStream os = conn.getOutputStream()) {
-            os.write(("{\"file\": {\"display_name\": \"" + file.getName() + "\"}}").getBytes(StandardCharsets.UTF_8));
+            os.write(headerObj.toString().getBytes(StandardCharsets.UTF_8));
             os.write(Files.readAllBytes(file.toPath()));
         }
 
@@ -488,25 +572,60 @@ public class Gemini extends ListenerAdapter {
             throw new IOException("Error uploading file: " + errorResponse);
         }
     }
+
+    /**
+     * Lädt die Konfiguration aus der Datei config.properties.
+     *
+     * @return Ein Properties-Objekt mit den Konfigurationseinstellungen.
+     */
+    private Properties loadConfigProperties() {
+        Properties properties = new Properties();
+        try (FileInputStream fis = new FileInputStream("config.properties")) {
+            properties.load(fis);
+        } catch (IOException e) {
+            System.err.println("Error loading config.properties: " + e.getMessage());
+        }
+        return properties;
+    }
 }
 
+/**
+ * Hilfsklasse zur Verwaltung von Nachrichten im Chatverlauf.
+ */
 class Messages {
-    private String message;
-    private String author;
+    private final String message;
+    private final String author;
 
+    /**
+     * Konstruktor. Der übergebene Text wird vor der Speicherung bereinigt.
+     *
+     * @param message Die Nachricht.
+     * @param author  Der Autor der Nachricht.
+     */
     public Messages(String message, String author) {
-        this.message = message.replace("\"", "\\\"")
-                .replace("\n", " ")
+        // Entferne Zeilenumbrüche und Tabs; spezielle Zeichen werden nicht manuell escaped,
+        // da der JSON-Parser dies übernimmt.
+        this.message = message.replace("\n", " ")
                 .replace("\r", " ")
                 .replace("\t", " ")
                 .replace("_", "\\_");
         this.author = author;
     }
 
+    /**
+     * Gibt die Nachricht zurück.
+     *
+     * @return Die Nachricht.
+     */
     public String getMessage() {
         return message;
     }
 
+    /**
+     * Gibt den Autor der Nachricht zurück.
+     *
+     * @return Der Autor.
+     */
     public String getAuthor() {
         return author;
     }
