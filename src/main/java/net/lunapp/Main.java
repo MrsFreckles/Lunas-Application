@@ -13,6 +13,8 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import net.lunapp.commands.Gemini;
+import net.lunapp.twitch.SocketServer;
+import net.lunapp.twitch.TwitchBot;
 import org.jetbrains.annotations.NotNull;
 import org.reflections.Reflections;
 import org.reflections.scanners.SubTypesScanner;
@@ -29,6 +31,8 @@ public class Main {
     private static String token;
     private static boolean listenerEnabled = true;
     private static Gemini gemini;
+    private static TwitchBot twitchBot;
+    private static SocketServer socketServer;
 
     public static void main(String[] args) {
         Properties properties = new Properties();
@@ -50,6 +54,12 @@ public class Main {
         jda = builder.build();
 
         gemini = new Gemini();
+        twitchBot = new TwitchBot();
+        try {
+            socketServer = new SocketServer(8080);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         addEvents();
         addCommands();
@@ -148,5 +158,17 @@ public class Main {
 
     public static FileUtils getFileUtils() {
         return fileUtils;
+    }
+
+    public static TwitchBot getTwitchBot() {
+        return twitchBot;
+    }
+
+    public static Gemini getGemini(){
+        return gemini;
+    }
+
+    public static SocketServer getSocketServer() {
+        return socketServer;
     }
 }
