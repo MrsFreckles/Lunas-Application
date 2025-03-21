@@ -109,7 +109,12 @@ public class Main {
                     }
                     String message = event.getMessage().getContentRaw().toLowerCase();
                     if (message.contains("mitsuki") || message.contains("koga")) {
-                        gemini.handleAskCommand(event.getMessage().getContentRaw() + " Person who just talked to you: " + event.getMessage().getAuthor().getName(), null, false, null, event);
+                        // Angepasster Aufruf: nun ohne ephemeral und Attachment
+                        gemini.handleAskCommand(
+                                event.getMessage().getContentRaw() + " Person who just talked to you: " + event.getMessage().getAuthor().getName(),
+                                null,
+                                event
+                        );
                     }
                 }
             }

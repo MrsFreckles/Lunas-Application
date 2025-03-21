@@ -19,8 +19,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.*;
 import java.time.Instant;
+import java.util.*;
+import java.util.function.Consumer;
 
 @Command
 public class Gemini extends ListenerAdapter {
@@ -70,7 +71,7 @@ public class Gemini extends ListenerAdapter {
                 }
             }
         } catch (IOException e) {
-            System.err.println("Error loading short term memory: " + e.getMessage());
+            System.err.println("Fehler beim Laden des Kurzzeitspeichers: " + e.getMessage());
         }
     }
 
@@ -93,18 +94,26 @@ public class Gemini extends ListenerAdapter {
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
-            System.err.println("Error saving short term memory: " + e.getMessage());
+            System.err.println("Fehler beim Speichern des Kurzzeitspeichers: " + e.getMessage());
         }
     }
 
     /**
-     * Aktualisiert den Langzeitspeicher. Wird ein Text übergeben, der bereits existiert,
-     * wird er bei remove=true gelöscht. Andernfalls wird der Text hinzugefügt.
+     * Aktualisiert den Langzeitspeicher (Erinnerungen). Dabei wird zuerst aus der Konfiguration
+     * (config.properties) entschieden, ob etwas gespeichert oder gelöscht werden soll.
+     * Dieser Prozess wird durch einen eigenen Memory-Control-Prompt gesteuert.
      *
-     * @param text   Der zu speichernde Text.
+     * @param text   Der Text, der als Erinnerung gespeichert oder gelöscht werden soll.
      * @param remove Flag, ob der Text entfernt werden soll.
      */
     private void updateLongTermMemory(String text, boolean remove) {
+        Properties properties = loadConfigProperties();
+        boolean memoryEnabled = Boolean.parseBoolean(properties.getProperty("longTermMemoryEnabled", "false"));
+        if (!memoryEnabled) {
+            // Falls die Speicherung von Erinnerungen deaktiviert ist, wird nichts unternommen.
+            return;
+        }
+
         try {
             JSONArray jsonArray;
             Path longTermPath = Paths.get(LONG_TERM_MEMORY_FILE);
@@ -127,7 +136,7 @@ public class Gemini extends ListenerAdapter {
                     }
                 }
                 if (!found) {
-                    System.err.println("Error: No matching entry found to forget.");
+                    System.err.println("Keine passende Erinnerung gefunden, die gelöscht werden könnte.");
                 }
             } else {
                 JSONObject jsonObject = new JSONObject();
@@ -141,7 +150,7 @@ public class Gemini extends ListenerAdapter {
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
-            System.err.println("Error updating long term memory: " + e.getMessage());
+            System.err.println("Fehler beim Aktualisieren des Langzeitspeichers: " + e.getMessage());
         }
     }
 
@@ -169,6 +178,170 @@ public class Gemini extends ListenerAdapter {
     }
 
     /**
+     * Überprüft, ob der übergebene Prompt Anweisungen zum Speichern oder Löschen von Erinnerungen enthält.
+     * Dieser erste "Memory-Control-Prompt" wird ohne systemPrompt an die KI gesendet.
+     * Das Ergebnis (falls benötigt) wird in der Konsole dokumentiert.
+     *
+     * @param prompt Die ursprüngliche Benutzeranfrage.
+     */
+    private void processMemoryControl(String prompt) {
+        Properties properties = loadConfigProperties();
+        String memoryControlPrompt = properties.getProperty("memoryControlPrompt", "");
+        if (memoryControlPrompt.isEmpty()) {
+            return; // Kein Memory-Control-Prompt definiert.
+        }
+
+        if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke")) {
+            JSONObject payload = buildPayload(prompt, null, null);
+            String response = sendGeminiRequest(payload);
+            System.out.println("KI Antwort (Memory Control - Speichern): " + response);
+            updateLongTermMemory(prompt, false);
+        }
+        if (prompt.toLowerCase().contains("forget") || prompt.toLowerCase().contains("vergesse")) {
+            JSONObject payload = buildPayload(prompt, null, null);
+            String response = sendGeminiRequest(payload);
+            System.out.println("KI Antwort (Memory Control - Löschen): " + response);
+            updateLongTermMemory(prompt, true);
+        }
+    }
+
+    /**
+     * Baut das JSON-Payload für die Anfrage an den Gemini-Service auf.
+     * Falls systemInstructionText nicht null ist, wird dieser als systemPrompt eingebunden.
+     *
+     * @param promptText            Die Textnachricht des Benutzers.
+     * @param systemInstructionText Der systemPrompt (optional).
+     * @param channelId             Die Channel-ID zur Filterung des Gesprächsverlaufs (optional).
+     * @return Das erstellte JSONObject.
+     */
+    private JSONObject buildPayload(String promptText, String systemInstructionText, String channelId) {
+        JSONArray contents = new JSONArray();
+        // Filtere den Kurzzeitspeicher nach Channel, falls channelId gesetzt ist
+        for (Messages message : userPrompts) {
+            if (channelId != null && !message.getChannelId().equals(channelId)) {
+                continue;
+            }
+            JSONObject msgObj = new JSONObject();
+            msgObj.put("role", message.getAuthor());
+            JSONArray parts = new JSONArray();
+            JSONObject partObj = new JSONObject();
+            partObj.put("text", message.getMessage());
+            parts.put(partObj);
+            msgObj.put("parts", parts);
+            contents.put(msgObj);
+        }
+        // Füge den aktuellen Benutzerprompt hinzu
+        JSONObject currentMsg = new JSONObject();
+        currentMsg.put("role", "user");
+        JSONArray currentParts = new JSONArray();
+        JSONObject currentPart = new JSONObject();
+        currentPart.put("text", promptText);
+        currentParts.put(currentPart);
+        currentMsg.put("parts", currentParts);
+        contents.put(currentMsg);
+
+        JSONObject payload = new JSONObject();
+        payload.put("contents", contents);
+
+        // Falls ein systemPrompt angegeben wurde, wird er eingebunden.
+        if (systemInstructionText != null) {
+            JSONObject systemInstruction = new JSONObject();
+            systemInstruction.put("role", "user");
+            JSONArray sysParts = new JSONArray();
+            JSONObject sysPart = new JSONObject();
+            sysPart.put("text", systemInstructionText);
+            sysParts.put(sysPart);
+            systemInstruction.put("parts", sysParts);
+            payload.put("systemInstruction", systemInstruction);
+        }
+
+        // Konfiguriere die Generationseinstellungen
+        JSONObject generationConfig = new JSONObject();
+        generationConfig.put("temperature", 1);
+        generationConfig.put("topK", 40);
+        generationConfig.put("topP", 0.95);
+        generationConfig.put("maxOutputTokens", 10000);
+        generationConfig.put("responseMimeType", "text/plain");
+        payload.put("generationConfig", generationConfig);
+
+        return payload;
+    }
+
+    /**
+     * Sendet das übergebene JSON-Payload an den Gemini-Service und gibt den Antworttext zurück.
+     *
+     * @param payload Das zu sendende JSON-Objekt.
+     * @return Die Antwort der KI als String.
+     */
+    private String sendGeminiRequest(JSONObject payload) {
+        Properties properties = loadConfigProperties();
+        String endpoint = properties.getProperty("gemini");
+        try {
+            String jsonInput = payload.toString();
+            HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(jsonInput.getBytes(StandardCharsets.UTF_8));
+            }
+            int responseCode = conn.getResponseCode();
+            if (responseCode == 200) {
+                String response = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                JSONObject jsonResponse = new JSONObject(response);
+                return jsonResponse
+                        .getJSONArray("candidates")
+                        .getJSONObject(0)
+                        .getJSONObject("content")
+                        .getJSONArray("parts")
+                        .getJSONObject(0)
+                        .getString("text");
+            } else {
+                String errorResponse = new String(conn.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+                System.err.println("Fehlerhafte Antwort: " + errorResponse);
+                return "Fehler: " + errorResponse;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Exception: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Zentrale Methode zur Verarbeitung von "ask"-Befehlen, sowohl für Slash-Commands als auch normale Nachrichten.
+     *
+     * @param prompt    Die Benutzeranfrage.
+     * @param role      Die gewünschte Rolle.
+     * @param channelId Die Channel-ID.
+     * @param timestamp Zeitstempel der Nachricht.
+     * @param callback  Callback, um die Antwort zurückzugeben.
+     */
+    private void handleAsk(String prompt, String role, String channelId, String timestamp, Consumer<String> callback) {
+        userPrompts.add(new Messages(prompt, "user", channelId, timestamp));
+        if (userPrompts.size() > 20) {
+            userPrompts.remove(0);
+        }
+        saveMemory();
+
+        if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke") ||
+                prompt.toLowerCase().contains("forget") || prompt.toLowerCase().contains("vergesse")) {
+            processMemoryControl(prompt);
+        }
+
+        Properties properties = loadConfigProperties();
+        String systemPrompt = properties.getProperty("systemPrompt", "");
+        JSONObject payload = buildPayload(prompt, systemPrompt, channelId);
+
+        new Thread(() -> {
+            String responseText = sendGeminiRequest(payload);
+            System.out.println("KI Antwort (Final): " + responseText);
+            userPrompts.add(new Messages(responseText, "model", channelId, Instant.now().toString()));
+            saveMemory();
+            callback.accept(responseText);
+        }).start();
+    }
+
+    /**
      * Verarbeitet Slash-Command-Interaktionen.
      *
      * @param event Das SlashCommandInteractionEvent.
@@ -176,425 +349,63 @@ public class Gemini extends ListenerAdapter {
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event) {
         String command = event.getName();
-
         if (command.equalsIgnoreCase("ask")) {
             String prompt = event.getOption("prompt", OptionMapping::getAsString);
             String role = event.getOption("role", OptionMapping::getAsString);
-            Boolean ephemeral = event.getOption("ephemeral", OptionMapping::getAsBoolean);
-            Message.Attachment attachment = event.getOption("file", OptionMapping::getAsAttachment);
-            handleAskCommand(event, prompt, role, ephemeral, attachment);
+            event.deferReply().addActionRow(Button.danger("cancel_ask", "Cancel")).queue();
+            String channelId = event.getChannel().getId();
+            String timestamp = event.getTimeCreated().toString();
+            handleAsk(prompt, role, channelId, timestamp, responseText -> {
+                String[] parts = splitString(responseText, 2000);
+                event.getHook().editOriginal(parts[0]).setComponents().queue();
+                for (int i = 1; i < parts.length; i++) {
+                    event.getHook().sendMessage(parts[i]).queue();
+                }
+            });
         } else if (command.equalsIgnoreCase("newchat")) {
             userPrompts.clear();
             saveMemory();
-            event.reply("Chat log has been reset.").setEphemeral(true).queue();
+            event.reply("Chat log wurde zurückgesetzt.").setEphemeral(true).queue();
         } else if (command.equalsIgnoreCase("togglelistener")) {
             Main.toggleListener();
-            event.reply("Listener has been " + (Main.isListenerEnabled() ? "enabled" : "disabled") + ".")
+            event.reply("Listener wurde " + (Main.isListenerEnabled() ? "aktiviert" : "deaktiviert") + ".")
                     .setEphemeral(true)
                     .queue();
         }
     }
 
-    public void handleMessageEvent(String prompt, String role) {
-        // Add the message to userPrompts
-        userPrompts.add(new Messages(prompt, "user", "", Instant.now().toString()));
-        if (userPrompts.size() > 20) {
-            userPrompts.remove(0);
-        }
-        saveMemory();
-
-        // Process the message with the role
-        final String finalRole = role;
-        new Thread(() -> {
-            JSONArray contents = new JSONArray();
-            for (Messages message : userPrompts) {
-                JSONObject msgObj = new JSONObject();
-                msgObj.put("role", message.getAuthor());
-                JSONArray msgParts = new JSONArray();
-                JSONObject partObj = new JSONObject();
-                partObj.put("text", message.getMessage());
-                msgParts.put(partObj);
-                msgObj.put("parts", msgParts);
-                contents.put(msgObj);
-            }
-
-            JSONObject systemInstruction = new JSONObject();
-            systemInstruction.put("role", "user");
-            JSONArray sysParts = new JSONArray();
-            JSONObject sysPart = new JSONObject();
-            sysPart.put("text", finalRole);
-            sysParts.put(sysPart);
-            systemInstruction.put("parts", sysParts);
-
-            JSONObject generationConfig = new JSONObject();
-            generationConfig.put("temperature", 1);
-            generationConfig.put("topK", 40);
-            generationConfig.put("topP", 0.95);
-            generationConfig.put("maxOutputTokens", 10000);
-            generationConfig.put("responseMimeType", "text/plain");
-
-            JSONObject payload = new JSONObject();
-            payload.put("contents", contents);
-            payload.put("systemInstruction", systemInstruction);
-            payload.put("generationConfig", generationConfig);
-
-            try {
-                String jsonInput = payload.toString();
-
-                HttpURLConnection conn = (HttpURLConnection) new URL(loadConfigProperties().getProperty("gemini")).openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setDoOutput(true);
-
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(jsonInput.getBytes(StandardCharsets.UTF_8));
-                }
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode == 200) {
-                    String response = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                    JSONObject jsonResponse = new JSONObject(response);
-                    String responseText = jsonResponse
-                            .getJSONArray("candidates")
-                            .getJSONObject(0)
-                            .getJSONObject("content")
-                            .getJSONArray("parts")
-                            .getJSONObject(0)
-                            .getString("text");
-
-                    userPrompts.add(new Messages(responseText, "model", "", Instant.now().toString()));
-                    saveMemory();
-
-
-                    JSONObject message = new JSONObject();
-                    message.put("type", "mitsuki");
-                    message.put("author", "model");
-                    message.put("content", responseText);
-                    Main.getSocketServer().broadcast(message);
-
-                    // Send the response to Twitch chat
-                    sendMessageWithDelay(Main.getTwitchBot().getTwitchClient(), "frecklesmp4", responseText);
-                } else {
-                    String errorResponse = new String(conn.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-                    System.err.println("Error response: " + errorResponse);
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }).start();
-    }
-
-    /**
-     * Verarbeitet den "ask"-Befehl von Slash-Commands.
-     *
-     * @param event      Das SlashCommandInteractionEvent.
-     * @param prompt     Die Benutzeranfrage.
-     * @param role       Die gewünschte Rolle.
-     * @param ephemeral  Ob die Antwort nur für den Benutzer sichtbar sein soll.
-     * @param attachment Mögliche Dateianlage.
-     */
-    public void handleAskCommand(SlashCommandInteractionEvent event, String prompt, String role, Boolean ephemeral, Message.Attachment attachment) {
-        if (ephemeral == null) {
-            ephemeral = false;
-        }
-
-        if (event != null) {
-            event.deferReply(ephemeral)
-                    .addActionRow(Button.danger("cancel_ask", "Cancel"))
-                    .queue();
-        }
-        // Hinzufügen von ChannelID und Timestamp
-        userPrompts.add(new Messages(prompt, "user", event.getChannel().getId(), event.getTimeCreated().toString()));
-        if (userPrompts.size() > 20) {
-            userPrompts.remove(0);
-        }
-        saveMemory();
-
-        final String finalRole = role;
-
-        new Thread(() -> {
-            // Filtere Nachrichten nur für den aktuellen Channel
-            String currentChannelId = event.getChannel().getId();
-            JSONArray contents = new JSONArray();
-            for (Messages message : userPrompts) {
-                if (!message.getChannelId().equals(currentChannelId)) {
-                    continue;
-                }
-                JSONObject msgObj = new JSONObject();
-                msgObj.put("role", message.getAuthor());
-                JSONArray parts = new JSONArray();
-                JSONObject partObj = new JSONObject();
-                partObj.put("text", message.getMessage());
-                parts.put(partObj);
-                msgObj.put("parts", parts);
-                contents.put(msgObj);
-            }
-
-            // Erstelle systemInstruction-Objekt
-            JSONObject systemInstruction = new JSONObject();
-            systemInstruction.put("role", "user");
-            JSONArray sysParts = new JSONArray();
-            JSONObject sysPart = new JSONObject();
-            sysPart.put("text", finalRole);
-            sysParts.put(sysPart);
-            systemInstruction.put("parts", sysParts);
-
-            // Erstelle generationConfig-Objekt
-            JSONObject generationConfig = new JSONObject();
-            generationConfig.put("temperature", 1);
-            generationConfig.put("topK", 40);
-            generationConfig.put("topP", 0.95);
-            generationConfig.put("maxOutputTokens", 10000);
-            generationConfig.put("responseMimeType", "text/plain");
-
-            // Erstelle das finale JSON-Payload
-            JSONObject payload = new JSONObject();
-            payload.put("contents", contents);
-            payload.put("systemInstruction", systemInstruction);
-            payload.put("generationConfig", generationConfig);
-
-            try {
-                String jsonInput = payload.toString();
-
-                HttpURLConnection conn = (HttpURLConnection) new URL(loadConfigProperties().getProperty("gemini")).openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setDoOutput(true);
-
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(jsonInput.getBytes(StandardCharsets.UTF_8));
-                }
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode == 200) {
-                    String response = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                    JSONObject jsonResponse = new JSONObject(response);
-                    String responseText = jsonResponse
-                            .getJSONArray("candidates")
-                            .getJSONObject(0)
-                            .getJSONObject("content")
-                            .getJSONArray("parts")
-                            .getJSONObject(0)
-                            .getString("text");
-
-                    // Füge die Antwort mit ChannelID und aktuellem Timestamp hinzu
-                    userPrompts.add(new Messages(responseText, "model", event.getChannel().getId(), Instant.now().toString()));
-                    saveMemory();
-
-                    String[] parts = splitString(responseText, 2000);
-                    if (event != null) {
-                        event.getHook().editOriginal(parts[0]).setComponents().queue();
-                        for (int i = 1; i < parts.length; i++) {
-                            event.getHook().sendMessage(parts[i]).queue();
-                        }
-                    }
-
-                    if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke")) {
-                        updateLongTermMemory(prompt, false);
-                        if (event != null) {
-                            String updatedContent = event.getHook().retrieveOriginal().complete().getContentRaw()
-                                    + "\n-# " + prompt;
-                            event.getHook().editOriginal(updatedContent).queue();
-                        }
-                    }
-
-                    if (attachment != null) {
-                        try {
-                            String fileName = attachment.getFileName();
-                            String suffix = "";
-                            int dotIndex = fileName.lastIndexOf('.');
-                            if (dotIndex >= 0) {
-                                suffix = fileName.substring(dotIndex);
-                            } else {
-                                suffix = ".tmp";
-                            }
-                            File tempFile = File.createTempFile("discordUpload", suffix);
-                            try (InputStream in = new URL(attachment.getProxyUrl()).openStream()) {
-                                Files.copy(in, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            }
-                            String fileUri = uploadFileToGemini(loadConfigProperties().getProperty("apiKey"), tempFile, attachment.getContentType());
-                            if (fileUri != null) {
-                                event.getHook().sendMessage("File uploaded: " + fileUri).queue();
-                            }
-                            tempFile.delete();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                } else {
-                    String errorResponse = new String(conn.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-                    System.err.println("Error response: " + errorResponse);
-                    if (event != null) {
-                        event.getHook().editOriginal("Error: " + errorResponse).setComponents().queue();
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                if (event != null) {
-                    event.getHook().editOriginal("Error: " + e.getMessage()).setComponents().queue();
-                }
-            }
-        }).start();
-    }
-
     /**
      * Verarbeitet den "ask"-Befehl, wenn er als normale Nachricht (MessageReceivedEvent) auftritt.
      *
-     * @param prompt     Die Benutzeranfrage.
-     * @param role       Die gewünschte Rolle.
-     * @param ephemeral  Ob die Antwort nur für den Benutzer sichtbar sein soll.
-     * @param attachment Mögliche Dateianlage.
-     * @param event      Das MessageReceivedEvent.
+     * @param prompt Die Benutzeranfrage.
+     * @param role   Die gewünschte Rolle.
+     * @param event  Das MessageReceivedEvent.
      */
-    public void handleAskCommand(String prompt, String role, Boolean ephemeral, Message.Attachment attachment, MessageReceivedEvent event) {
-        long loadingMessageId = 0;
-        if (event != null) {
-            Message loadingMessage = event.getChannel()
-                    .sendMessage("<a:loading:1344750264703520799> \u200E thinking.. ( ´△｀)")
-                    .complete();
-            loadingMessageId = loadingMessage.getIdLong();
-        }
-
-        Properties properties = loadConfigProperties();
-        String gemini = properties.getProperty("gemini");
-        String roleGemini = properties.getProperty("roleGemini");
-        String apiKey = properties.getProperty("apiKey");
-
-        if (role == null) {
-            role = roleGemini;
-        }
-
-        // Hinzufügen von ChannelID und Timestamp
-        userPrompts.add(new Messages(prompt, "user", event.getChannel().getId(), event.getMessage().getTimeCreated().toString()));
-        if (userPrompts.size() > 20) {
-            userPrompts.remove(0);
-        }
-        saveMemory();
-
-        final String finalRole = role;
-        long finalLoadingMessageId = loadingMessageId;
-
-        new Thread(() -> {
-            // Filtere Nachrichten nur für den aktuellen Channel
-            String currentChannelId = event.getChannel().getId();
-            JSONArray contents = new JSONArray();
-            for (Messages message : userPrompts) {
-                if (!message.getChannelId().equals(currentChannelId)) {
-                    continue;
-                }
-                JSONObject msgObj = new JSONObject();
-                msgObj.put("role", message.getAuthor());
-                JSONArray parts = new JSONArray();
-                JSONObject partObj = new JSONObject();
-                partObj.put("text", message.getMessage());
-                parts.put(partObj);
-                msgObj.put("parts", parts);
-                contents.put(msgObj);
+    public void handleAskCommand(String prompt, String role, MessageReceivedEvent event) {
+        Message loadingMessage = event.getChannel()
+                .sendMessage("<a:loading:1344750264703520799> \u200E thinking.. ( ´△｀)")
+                .complete();
+        String channelId = event.getChannel().getId();
+        String timestamp = event.getMessage().getTimeCreated().toString();
+        handleAsk(prompt, role, channelId, timestamp, responseText -> {
+            String[] parts = splitString(responseText, 2000);
+            event.getChannel().editMessageById(loadingMessage.getId(), parts[0]).queue();
+            for (int i = 1; i < parts.length; i++) {
+                event.getChannel().sendMessage(parts[i]).queue();
             }
+        });
+    }
 
-            JSONObject systemInstruction = new JSONObject();
-            systemInstruction.put("role", "user");
-            JSONArray sysParts = new JSONArray();
-            JSONObject sysPart = new JSONObject();
-            sysPart.put("text", finalRole);
-            sysParts.put(sysPart);
-            systemInstruction.put("parts", sysParts);
-
-            JSONObject generationConfig = new JSONObject();
-            generationConfig.put("temperature", 1);
-            generationConfig.put("topK", 40);
-            generationConfig.put("topP", 0.95);
-            generationConfig.put("maxOutputTokens", 10000);
-            generationConfig.put("responseMimeType", "text/plain");
-
-            JSONObject payload = new JSONObject();
-            payload.put("contents", contents);
-            payload.put("systemInstruction", systemInstruction);
-            payload.put("generationConfig", generationConfig);
-
-            try {
-                String jsonInput = payload.toString();
-
-                HttpURLConnection conn = (HttpURLConnection) new URL(gemini).openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setDoOutput(true);
-
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(jsonInput.getBytes(StandardCharsets.UTF_8));
-                }
-
-                int responseCode = conn.getResponseCode();
-                if (responseCode == 200) {
-                    String response = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                    JSONObject jsonResponse = new JSONObject(response);
-                    String responseText = jsonResponse
-                            .getJSONArray("candidates")
-                            .getJSONObject(0)
-                            .getJSONObject("content")
-                            .getJSONArray("parts")
-                            .getJSONObject(0)
-                            .getString("text");
-
-                    // Füge die Antwort mit ChannelID und aktuellem Timestamp hinzu
-                    userPrompts.add(new Messages(responseText, "model", event.getChannel().getId(), Instant.now().toString()));
-                    saveMemory();
-
-                    String[] parts = splitString(responseText, 2000);
-                    if (event != null) {
-                        event.getChannel().editMessageById(finalLoadingMessageId, parts[0]).queue();
-                        for (int i = 1; i < parts.length; i++) {
-                            event.getChannel().sendMessage(parts[i]).queue();
-                        }
-                    }
-
-                    if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke")) {
-                        updateLongTermMemory(prompt, false);
-                        if (event != null) {
-                            long messageId = event.getChannel().getLatestMessageIdLong();
-                            String updatedContent = event.getChannel().retrieveMessageById(messageId)
-                                    .complete().getContentRaw() + "\n-# " + prompt;
-                            event.getChannel().editMessageById(messageId, updatedContent).queue();
-                        }
-                    }
-
-                    if (attachment != null) {
-                        try {
-                            String fileName = attachment.getFileName();
-                            String suffix = "";
-                            int dotIndex = fileName.lastIndexOf('.');
-                            if (dotIndex >= 0) {
-                                suffix = fileName.substring(dotIndex);
-                            } else {
-                                suffix = ".tmp";
-                            }
-                            File tempFile = File.createTempFile("discordUpload", suffix);
-                            try (InputStream in = new URL(attachment.getProxyUrl()).openStream()) {
-                                Files.copy(in, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            }
-                            String fileUri = uploadFileToGemini(apiKey, tempFile, attachment.getContentType());
-                            if (fileUri != null) {
-                                event.getChannel().sendMessage("File uploaded: " + fileUri).queue();
-                            }
-                            tempFile.delete();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                } else {
-                    String errorResponse = new String(conn.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-                    System.err.println("Error response: " + errorResponse);
-                    if (event != null) {
-                        event.getChannel().sendMessage("Error: " + errorResponse).setComponents().queue();
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                if (event != null) {
-                    event.getChannel().sendMessage("Error: " + e.getMessage()).setComponents().queue();
-                }
-            }
-        }).start();
+    /**
+     * Neue Methode zur Verarbeitung von Twitch-Nachrichten.
+     *
+     * @param prompt   Die Twitch-Nachricht.
+     * @param role     Die gewünschte Rolle.
+     * @param callback Callback zur Rückgabe der Antwort.
+     */
+    public void handleTwitchMessage(String prompt, String role, Consumer<String> callback) {
+        // Verwende die zentrale Methode handleAsk mit "twitch" als Channel-ID und aktuellem Zeitstempel.
+        handleAsk(prompt, role, "twitch", Instant.now().toString(), callback);
     }
 
     /**
@@ -606,7 +417,7 @@ public class Gemini extends ListenerAdapter {
     public void onButtonInteraction(@NotNull ButtonInteractionEvent event) {
         if (event.getComponentId().equals("cancel_ask")) {
             event.deferEdit().queue();
-            event.getHook().editOriginal("The request has been canceled.").setComponents().queue();
+            event.getHook().editOriginal("Anfrage wurde abgebrochen.").setComponents().queue();
         }
     }
 
@@ -630,91 +441,6 @@ public class Gemini extends ListenerAdapter {
     }
 
     /**
-     * Lädt eine Datei zum Gemini-Service hoch.
-     *
-     * Hier wird ein Multipart/Related-Request verwendet, der den JSON-Header und
-     * den Dateiinhalt als separaten Part übermittelt.
-     *
-     * @param apiKey   Der API-Schlüssel.
-     * @param file     Die Datei, die hochgeladen werden soll.
-     * @param mimeType Der MIME-Typ der Datei.
-     * @return Die URI der hochgeladenen Datei.
-     * @throws IOException Falls ein Fehler beim Hochladen auftritt.
-     */
-    private String uploadFileToGemini(String apiKey, File file, String mimeType) throws IOException {
-        URL url = new URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + apiKey);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        String boundary = "----GeminiBoundary" + System.currentTimeMillis();
-        conn.setRequestProperty("Content-Type", "multipart/related; boundary=" + boundary);
-        conn.setRequestProperty("X-Goog-Upload-Command", "start, upload, finalize");
-        conn.setDoOutput(true);
-
-        // Erstelle den JSON-Header
-        JSONObject headerObj = new JSONObject();
-        JSONObject fileObj = new JSONObject();
-        fileObj.put("display_name", file.getName());
-        headerObj.put("file", fileObj);
-        String headerJson = headerObj.toString();
-
-        String lineBreak = "\r\n";
-        String boundaryPrefix = "--" + boundary;
-
-        // Baue den Multipart-Body mithilfe eines ByteArrayOutputStream
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream dos = new DataOutputStream(baos);
-
-        // Erster Part: JSON-Header
-        dos.writeBytes(boundaryPrefix + lineBreak);
-        dos.writeBytes("Content-Type: application/json; charset=UTF-8" + lineBreak);
-        dos.writeBytes(lineBreak);
-        dos.writeBytes(headerJson + lineBreak);
-
-        // Zweiter Part: Dateiinhalt
-        dos.writeBytes(boundaryPrefix + lineBreak);
-        dos.writeBytes("Content-Type: " + mimeType + lineBreak);
-        dos.writeBytes("Content-Disposition: attachment; filename=\"" + file.getName() + "\"" + lineBreak);
-        dos.writeBytes(lineBreak);
-        // Dateiinhalt schreiben
-        FileInputStream fis = new FileInputStream(file);
-        byte[] buffer = new byte[4096];
-        int bytesRead;
-        while ((bytesRead = fis.read(buffer)) != -1) {
-            dos.write(buffer, 0, bytesRead);
-        }
-        fis.close();
-        dos.writeBytes(lineBreak);
-
-        // Abschließende Boundary
-        dos.writeBytes(boundaryPrefix + "--" + lineBreak);
-        dos.flush();
-        byte[] multipartBody = baos.toByteArray();
-        dos.close();
-
-        // Setze die Content-Length des Requests
-        conn.setFixedLengthStreamingMode(multipartBody.length);
-        OutputStream os = conn.getOutputStream();
-        os.write(multipartBody);
-        os.flush();
-        os.close();
-
-        int responseCode = conn.getResponseCode();
-        if (responseCode == 200) {
-            String response = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            JSONObject jsonResponse = new JSONObject(response);
-            if (jsonResponse.has("fileUri")) {
-                return jsonResponse.getString("fileUri");
-            } else {
-                System.err.println("Error: fileUri not found in response");
-                return null;
-            }
-        } else {
-            String errorResponse = new String(conn.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            throw new IOException("Error uploading file: " + errorResponse);
-        }
-    }
-
-    /**
      * Lädt die Konfiguration aus der Datei config.properties.
      *
      * @return Ein Properties-Objekt mit den Konfigurationseinstellungen.
@@ -724,26 +450,10 @@ public class Gemini extends ListenerAdapter {
         try (FileInputStream fis = new FileInputStream("config.properties")) {
             properties.load(fis);
         } catch (IOException e) {
-            System.err.println("Error loading config.properties: " + e.getMessage());
+            System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
         }
         return properties;
     }
-
-    private void sendMessageWithDelay(TwitchClient twitchClient, String channelName, String message) {
-        String[] messageParts = splitString(message, 500);
-        Timer timer = new Timer();
-        for (int i = 0; i < messageParts.length; i++) {
-            int delay = i * 1000;
-            final String part = messageParts[i];
-            timer.schedule(new TimerTask() {
-                @Override
-                public void run() {
-                    twitchClient.getChat().sendMessage(channelName, part);
-                }
-            }, delay);
-        }
-    }
-
 }
 
 /**
@@ -759,9 +469,9 @@ class Messages {
      * Konstruktor. Der übergebene Text wird vor der Speicherung bereinigt.
      *
      * @param message   Die Nachricht.
-     * @param author    Der Autor der Nachricht.
-     * @param channelId Die ID des Discord-Channels.
-     * @param timestamp Der Zeitstempel der Nachricht.
+     * @param author    Der Autor.
+     * @param channelId Die ID des Channels.
+     * @param timestamp Der Zeitstempel.
      */
     public Messages(String message, String author, String channelId, String timestamp) {
         this.message = message.replace("\n", " ")
@@ -773,38 +483,18 @@ class Messages {
         this.timestamp = timestamp;
     }
 
-    /**
-     * Gibt die Nachricht zurück.
-     *
-     * @return Die Nachricht.
-     */
     public String getMessage() {
         return message;
     }
 
-    /**
-     * Gibt den Autor der Nachricht zurück.
-     *
-     * @return Der Autor.
-     */
     public String getAuthor() {
         return author;
     }
 
-    /**
-     * Gibt die ChannelID zurück.
-     *
-     * @return Die ChannelID.
-     */
     public String getChannelId() {
         return channelId;
     }
 
-    /**
-     * Gibt den Zeitstempel der Nachricht zurück.
-     *
-     * @return Der Zeitstempel.
-     */
     public String getTimestamp() {
         return timestamp;
     }

@@ -6,14 +6,11 @@ import com.github.twitch4j.TwitchClient;
 import com.github.twitch4j.TwitchClientBuilder;
 import com.github.twitch4j.chat.events.channel.ChannelMessageEvent;
 import net.lunapp.Main;
-import net.lunapp.commands.Gemini;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.List;
 import java.util.Properties;
 
 public class TwitchBot {
@@ -22,7 +19,7 @@ public class TwitchBot {
     private Properties properties = loadConfigProperties();
     private TwitchClient twitchClient;
 
-    public TwitchBot(){
+    public TwitchBot() {
         String twitchAccessToken = properties.getProperty("twitchAccessToken");
         OAuth2Credential credential = new OAuth2Credential("twitch", twitchAccessToken);
         twitchClient = TwitchClientBuilder.builder()
@@ -31,13 +28,13 @@ public class TwitchBot {
                 .withChatAccount(credential)
                 .build();
 
+        // Tritt dem Twitch-Channel bei
         twitchClient.getChat().joinChannel("frecklesmp4");
 
         EventManager eventManager = twitchClient.getEventManager();
         eventManager.onEvent(ChannelMessageEvent.class, this::handleMessageEvent);
 
         twitchClient.getChat().sendMessage("frecklesmp4", "Hello World!");
-
     }
 
     /**
@@ -50,18 +47,32 @@ public class TwitchBot {
         try (FileInputStream fis = new FileInputStream("config.properties")) {
             properties.load(fis);
         } catch (IOException e) {
-            System.err.println("Error loading config.properties: " + e.getMessage());
+            System.err.println("Fehler beim Laden der config.properties: " + e.getMessage());
         }
         return properties;
     }
 
+    /**
+     * Behandelt ChannelMessageEvents aus dem Twitch-Chat.
+     * Erkennt Nachrichten, die "mitsuki" oder "koga" enthalten,
+     * und leitet sie an Gemini weiter.
+     *
+     * Hier wird nun die neue Methode handleTwitchMessage verwendet.
+     *
+     * @param event Das ChannelMessageEvent.
+     */
     private void handleMessageEvent(ChannelMessageEvent event) {
-        if (event.getMessage().toLowerCase().contains("mitsuki") || event.getMessage().toLowerCase().contains("koga")) {
+        String messageLower = event.getMessage().toLowerCase();
+        if (messageLower.contains("mitsuki") || messageLower.contains("koga")) {
             String roleGemini = properties.getProperty("roleGemini");
-            System.out.println(
-                    "Message from " + event.getUser().getName() + ": " + event.getMessage()
+            String prompt = "Message from " + event.getUser().getName() + ": " + event.getMessage();
+            log.info(prompt);
+            // Neuer Aufruf: Wir gehen davon aus, dass Gemini nun eine öffentliche Methode handleTwitchMessage(String prompt, String role, Consumer<String> callback) bereitstellt.
+            Main.getGemini().handleTwitchMessage(
+                    prompt,
+                    roleGemini + " Versuche dich bitte kurz zu halten. Du bist oft im Twitch-Chat von frecklesmp4 (Luna).",
+                    response -> twitchClient.getChat().sendMessage("frecklesmp4", response)
             );
-            Main.getGemini().handleMessageEvent("Message from " + event.getUser().getName() + ": " + event.getMessage(), roleGemini  + " Versuche dich bitte kurz zuhalten ;)");
         }
     }
 
