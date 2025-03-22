@@ -12,6 +12,7 @@ import net.lunapp.Command;
 import net.lunapp.Main;
 import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.*;
@@ -98,14 +99,6 @@ public class Gemini extends ListenerAdapter {
         }
     }
 
-    /**
-     * Aktualisiert den Langzeitspeicher (Erinnerungen). Dabei wird zuerst aus der Konfiguration
-     * (config.properties) entschieden, ob etwas gespeichert oder gelöscht werden soll.
-     * Dieser Prozess wird durch einen eigenen Memory-Control-Prompt gesteuert.
-     *
-     * @param text   Der Text, der als Erinnerung gespeichert oder gelöscht werden soll.
-     * @param remove Flag, ob der Text entfernt werden soll.
-     */
     private void updateLongTermMemory(String text, boolean remove) {
         Properties properties = loadConfigProperties();
         boolean memoryEnabled = Boolean.parseBoolean(properties.getProperty("longTermMemoryEnabled", "false"));
@@ -125,19 +118,13 @@ public class Gemini extends ListenerAdapter {
             }
 
             if (remove) {
-                boolean found = false;
                 for (int i = 0; i < jsonArray.length(); i++) {
-                    JSONObject jsonObject = jsonArray.getJSONObject(i);
-                    String storedText = jsonObject.getString("text");
-                    if (calculateSimilarity(text, storedText) >= 0.9) {
-                        jsonArray.remove(i);
-                        found = true;
-                        break;
-                    }
+                JSONObject jsonObject = jsonArray.getJSONObject(i);
+                if (jsonObject.getInt("id") == Integer.parseInt(text)) {
+                    jsonArray.remove(i);
+                    break;
                 }
-                if (!found) {
-                    System.err.println("Keine passende Erinnerung gefunden, die gelöscht werden könnte.");
-                }
+            }
             } else {
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put("id", jsonArray.length() + 1);
@@ -155,29 +142,6 @@ public class Gemini extends ListenerAdapter {
     }
 
     /**
-     * Berechnet die Ähnlichkeit zweier Texte basierend auf gemeinsamen Wörtern.
-     *
-     * @param text1 Erster Text.
-     * @param text2 Zweiter Text.
-     * @return Verhältnis der übereinstimmenden Wörter zur maximalen Wortanzahl.
-     */
-    private double calculateSimilarity(String text1, String text2) {
-        String[] words1 = text1.split("\\s+");
-        String[] words2 = text2.split("\\s+");
-        int matches = 0;
-
-        for (String word1 : words1) {
-            for (String word2 : words2) {
-                if (word1.equalsIgnoreCase(word2)) {
-                    matches++;
-                    break;
-                }
-            }
-        }
-        return (double) matches / Math.max(words1.length, words2.length);
-    }
-
-    /**
      * Überprüft, ob der übergebene Prompt Anweisungen zum Speichern oder Löschen von Erinnerungen enthält.
      * Dieser erste "Memory-Control-Prompt" wird ohne systemPrompt an die KI gesendet.
      * Das Ergebnis (falls benötigt) wird in der Konsole dokumentiert.
@@ -185,23 +149,35 @@ public class Gemini extends ListenerAdapter {
      * @param prompt Die ursprüngliche Benutzeranfrage.
      */
     private void processMemoryControl(String prompt) {
-        Properties properties = loadConfigProperties();
-        String memoryControlPrompt = properties.getProperty("memoryControlPrompt", "");
-        if (memoryControlPrompt.isEmpty()) {
-            return; // Kein Memory-Control-Prompt definiert.
-        }
-
-        if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke")) {
-            JSONObject payload = buildPayload(prompt, null, null);
+        String memoryInstructions = "Überlege, ob der User eine Erinnerung speichern oder löschen möchte. Wenn der User speichern möchte, gebe den zu speichernden Text wieder. Wenn der Nutzer nichts speichern, oder nichts löschen möchte, dann gib \"noNewMemory + reason why this response\" wieder. Wenn der User etwas löschen möchte, dann gebe \"delete:\" und danach die entsprechende id aus dem gefundenen longTermMemory oder den Kurzzeitspeicher wieder (Beispiel: \"delete:3\"). Gib sonst nichts wieder. Keinen Text, keine weitere Antwort. Deine Einzige Aufgabe ist es das speichern zu kontrollieren.";
+        if (!prompt.isEmpty()) {
+            JSONObject payload = buildPayload(prompt, memoryInstructions, null);
             String response = sendGeminiRequest(payload);
-            System.out.println("KI Antwort (Memory Control - Speichern): " + response);
-            updateLongTermMemory(prompt, false);
-        }
-        if (prompt.toLowerCase().contains("forget") || prompt.toLowerCase().contains("vergesse")) {
-            JSONObject payload = buildPayload(prompt, null, null);
-            String response = sendGeminiRequest(payload);
-            System.out.println("KI Antwort (Memory Control - Löschen): " + response);
-            updateLongTermMemory(prompt, true);
+            System.out.println("(Memory Control - log): " + response);
+            if (response.equals("noNewMemory")) {
+                return;
+            } else if (response.startsWith("delete:")) {
+                String idToDelete = response.substring(7).trim();
+                if (idToDelete.matches("\\d+")) {
+                    updateLongTermMemory(idToDelete, true);
+                } else {
+                    System.err.println("Invalid ID for deletion: " + idToDelete);
+                }
+            } else {
+                // Ensure the response is in JSON format with id and text fields
+                if (response.trim().startsWith("{")) {
+                    try {
+                        JSONObject jsonResponse = new JSONObject(response);
+                        int id = jsonResponse.getInt("id");
+                        String text = jsonResponse.getString("text");
+                        updateLongTermMemory(text, false);
+                    } catch (JSONException e) {
+                        System.err.println("Fehler beim Verarbeiten der Antwort: " + e.getMessage());
+                    }
+                } else {
+                    System.err.println("Invalid JSON response: " + response);
+                }
+            }
         }
     }
 
@@ -323,10 +299,7 @@ public class Gemini extends ListenerAdapter {
         }
         saveMemory();
 
-        if (prompt.toLowerCase().contains("remember") || prompt.toLowerCase().contains("merke") ||
-                prompt.toLowerCase().contains("forget") || prompt.toLowerCase().contains("vergesse")) {
-            processMemoryControl(prompt);
-        }
+        processMemoryControl(prompt);
 
         Properties properties = loadConfigProperties();
         String systemPrompt = properties.getProperty("systemPrompt", "");
@@ -334,7 +307,7 @@ public class Gemini extends ListenerAdapter {
 
         new Thread(() -> {
             String responseText = sendGeminiRequest(payload);
-            System.out.println("KI Antwort (Final): " + responseText);
+            System.out.println("(Final AI Answer - log): " + responseText);
             userPrompts.add(new Messages(responseText, "model", channelId, Instant.now().toString()));
             saveMemory();
             callback.accept(responseText);
