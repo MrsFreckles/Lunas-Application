@@ -71,7 +71,10 @@ public class TwitchBot {
             Main.getGemini().handleTwitchMessage(
                     prompt,
                     roleGemini + " Versuche dich bitte kurz zu halten. Du bist oft im Twitch-Chat von frecklesmp4 (Luna).",
-                    response -> twitchClient.getChat().sendMessage("frecklesmp4", response)
+                    response -> {
+                        twitchClient.getChat().sendMessage("frecklesmp4", response);
+                        Main.getSocketServer().broadcast(response);
+                    }
             );
         }
     }
