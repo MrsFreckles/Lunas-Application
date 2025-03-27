@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 public class TwitchBot {
@@ -72,7 +74,28 @@ public class TwitchBot {
                     prompt,
                     roleGemini + " Versuche dich bitte kurz zu halten. Du bist oft im Twitch-Chat von frecklesmp4 (Luna).",
                     response -> {
-                        twitchClient.getChat().sendMessage("frecklesmp4", response);
+                        String channel = "frecklesmp4";
+                        int maxLength = 500;
+                        List<String> messages = new ArrayList<>();
+
+                        // Nachricht in 500 Zeichen lange Teile aufsplitten
+                        for (int i = 0; i < response.length(); i += maxLength) {
+                            messages.add(response.substring(i, Math.min(i + maxLength, response.length())));
+                        }
+
+                        // Nachrichten nacheinander senden
+                        new Thread(() -> {
+                            for (String message : messages) {
+                                twitchClient.getChat().sendMessage(channel, message);
+                                try {
+                                    Thread.sleep(1000); // 1 Sekunde Pause zwischen Nachrichten
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                }
+                            }
+                        }).start();
+
+                        // Broadcast an den Socket-Server
                         Main.getSocketServer().broadcast(response);
                     }
             );
