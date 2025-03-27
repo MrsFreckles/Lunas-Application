@@ -68,25 +68,40 @@ public class TwitchBot {
         if (messageLower.contains("mitsuki") || messageLower.contains("koga")) {
             String roleGemini = properties.getProperty("roleGemini");
             String prompt = "Message from " + event.getUser().getName() + ": " + event.getMessage();
-            log.info(prompt);
-            // Neuer Aufruf: Wir gehen davon aus, dass Gemini nun eine öffentliche Methode handleTwitchMessage(String prompt, String role, Consumer<String> callback) bereitstellt.
+            log.info("Received Twitch message: " + prompt);
+
+            // Aufruf von Gemini, der auch den Memory-Control-Prozess triggert
             Main.getGemini().handleTwitchMessage(
                     prompt,
                     roleGemini + " Versuche dich bitte kurz zu halten. Du bist oft im Twitch-Chat von frecklesmp4 (Luna).",
                     response -> {
+                        log.info("Received response from Gemini: " + response);
+                        if (response == null || response.trim().isEmpty()) {
+                            log.warn("Gemini response is empty. Skipping message send.");
+                            return;
+                        }
+
                         String channel = "frecklesmp4";
                         int maxLength = 500;
                         List<String> messages = new ArrayList<>();
 
-                        // Nachricht in 500 Zeichen lange Teile aufsplitten
+                        // Nachricht in max. 500-Zeichen lange Teile aufsplitten
                         for (int i = 0; i < response.length(); i += maxLength) {
                             messages.add(response.substring(i, Math.min(i + maxLength, response.length())));
                         }
 
-                        // Nachrichten nacheinander senden
+                        // Sicherstellen, dass der Socket-Server vorhanden ist
+                        if (Main.getSocketServer() == null) {
+                            log.error("SocketServer ist NULL! Broadcast nicht möglich.");
+                            return;
+                        }
+
+                        // Sende jeden Nachrichten-Teil an Twitch und an den WebSocket
                         new Thread(() -> {
-                            for (String message : messages) {
-                                twitchClient.getChat().sendMessage(channel, message);
+                            for (String msg : messages) {
+                                twitchClient.getChat().sendMessage(channel, msg);
+                                Main.getSocketServer().broadcast(msg);
+                                log.info("Sent message to Twitch & WebSocket: " + msg);
                                 try {
                                     Thread.sleep(1000); // 1 Sekunde Pause zwischen Nachrichten
                                 } catch (InterruptedException e) {
@@ -94,13 +109,12 @@ public class TwitchBot {
                                 }
                             }
                         }).start();
-
-                        // Broadcast an den Socket-Server
-                        Main.getSocketServer().broadcast(response);
                     }
             );
         }
     }
+
+
 
     public TwitchClient getTwitchClient() {
         return twitchClient;
