@@ -82,7 +82,9 @@ public class Main {
                         .addOption(OptionType.STRING, "newsource", "New source for the show", false)
                         .addOption(OptionType.BOOLEAN, "clear", "Clear the entire watchlist", false),
                 Commands.slash("newchat", "Reset the chats log history").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL),
-                Commands.slash("togglelistener", "Toggle the listener for 'Mitsuki' or 'Koga'").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
+                Commands.slash("togglelistener", "Toggle the listener for 'Mitsuki' or 'Koga'").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL),
+                Commands.slash("sort", "Try out different sorting algorithms").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
+                        .addOption(OptionType.STRING, "algorithm", "Choose a sorting algorithm", false)
         ).queue();
     }
 
