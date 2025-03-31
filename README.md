@@ -3,7 +3,7 @@
 Lunas-Application ist ein Discord-Bot, der die Gemini KI verwendet, um Fragen in Discord zu beantworten. Der Bot ist mit Java und Maven gebaut.
 
 ## Features
-
+ 
 - **Ping Command**: Antwortet mit "Ping Pong!".
 - **Ask Command**: Ermöglicht Benutzern, Fragen an Gemini zu stellen.
 - **Watchlist Command**: Verwaltet eine Watchlist von Shows.
