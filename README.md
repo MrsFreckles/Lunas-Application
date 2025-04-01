@@ -1,4 +1,4 @@
-# Lunas-Application
+# Lunas-Application 
 
 Lunas-Application ist ein Discord-Bot, der die Gemini KI verwendet, um Fragen in Discord zu beantworten. Der Bot ist mit Java und Maven gebaut.
 
