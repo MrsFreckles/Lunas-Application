@@ -110,7 +110,7 @@ public class Main {
                         return; // Ignoriere Nachrichten vom Bot selbst
                     }
                     String message = event.getMessage().getContentRaw().toLowerCase();
-                    if (message.contains("mitsuki") || message.contains("koga")) {
+                    if (message.contains("mitsuki") || message.contains("koga") || event.getChannel().getIdLong() == 1354183276901699735L) {
                         // Angepasster Aufruf: nun ohne ephemeral und Attachment
                         gemini.handleAskCommand(
                                 event.getMessage().getContentRaw() + " Person who just talked to you: " + event.getMessage().getAuthor().getName(),

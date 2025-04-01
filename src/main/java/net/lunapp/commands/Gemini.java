@@ -386,14 +386,12 @@ public class Gemini extends ListenerAdapter {
      * @param event  Das MessageReceivedEvent.
      */
     public void handleAskCommand(String prompt, String role, MessageReceivedEvent event) {
-        Message loadingMessage = event.getChannel()
-                .sendMessage("<a:loading:1344750264703520799> \u200E thinking.. ( ´△｀)")
-                .complete();
+        event.getChannel().sendTyping().queue();
         String channelId = event.getChannel().getId();
         String timestamp = event.getMessage().getTimeCreated().toString();
         handleAsk(prompt, role, channelId, timestamp, responseText -> {
             String[] parts = splitString(responseText, 2000);
-            event.getChannel().editMessageById(loadingMessage.getId(), parts[0]).queue();
+            event.getChannel().sendMessage(parts[0]).queue();
             for (int i = 1; i < parts.length; i++) {
                 event.getChannel().sendMessage(parts[i]).queue();
             }
@@ -409,7 +407,7 @@ public class Gemini extends ListenerAdapter {
      */
     public void handleTwitchMessage(String prompt, String role, Consumer<String> callback) {
         // Verwende die zentrale Methode handleAsk mit "twitch" als Channel-ID und aktuellem Zeitstempel.
-        handleAsk(prompt, role, "twitch", Instant.now().toString(), callback);
+        handleAsk(prompt, role + "Du bist gut gelaunt und freundlich zu allen.", "twitch", Instant.now().toString(), callback);
     }
 
     /**
