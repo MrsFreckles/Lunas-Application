@@ -85,6 +85,7 @@ public class Main {
                 Commands.slash("togglelistener", "Toggle the listener for 'Mitsuki' or 'Koga'").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL),
                 Commands.slash("sort", "Try out different sorting algorithms").setContexts(InteractionContextType.ALL).setIntegrationTypes(IntegrationType.ALL)
                         .addOption(OptionType.STRING, "algorithm", "Choose a sorting algorithm", false)
+                        .addOption(OptionType.INTEGER, "amount", "Number of elements to sort - max amount: 32", false)
         ).queue();
     }
 

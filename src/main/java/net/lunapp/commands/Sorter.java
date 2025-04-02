@@ -30,10 +30,21 @@ public class Sorter extends ListenerAdapter {
 
         event.deferReply().addActionRow(Button.danger("cancel_sort", "Cancel")).queue();
         String algorithm = event.getOption("algorithm", OptionMapping::getAsString);
+        int amount = event.getOption("amount", OptionMapping::getAsInt);
         this.event = event;
 
         if ("help".equalsIgnoreCase(algorithm)) {
             sendHelpEmbed();
+            return;
+        }
+
+        if (amount <= 32 && amount > 0) {
+            this.amount = amount;
+        } else if (amount > 32){
+            event.reply("The maximum amount of elements is 32.").queue();
+            return;
+        } else {
+            event.reply("The minimum amount of elements is 1.").queue();
             return;
         }
 
