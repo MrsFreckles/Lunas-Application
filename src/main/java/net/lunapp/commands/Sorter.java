@@ -17,7 +17,7 @@ import java.util.List;
 @Command
 public class Sorter extends ListenerAdapter {
 
-    private int amount = 15;
+    private int amount = 15; // Default amount of elements
     private final List<Integer> elements = Collections.synchronizedList(new ArrayList<>());
     private volatile boolean cancelRequested = false;
     private SlashCommandInteractionEvent event;
@@ -30,7 +30,7 @@ public class Sorter extends ListenerAdapter {
 
         event.deferReply().addActionRow(Button.danger("cancel_sort", "Cancel")).queue();
         String algorithm = event.getOption("algorithm", OptionMapping::getAsString);
-        int amount = event.getOption("amount", OptionMapping::getAsInt);
+        Integer amount = event.getOption("amount", OptionMapping::getAsInt);
         this.event = event;
 
         if ("help".equalsIgnoreCase(algorithm)) {
@@ -38,7 +38,9 @@ public class Sorter extends ListenerAdapter {
             return;
         }
 
-        if (amount <= 32 && amount > 0) {
+        /*if (amount == null) {
+            this.amount = 15;
+        } else if (amount <= 32 && amount > 0) {
             this.amount = amount;
         } else if (amount > 32){
             event.reply("The maximum amount of elements is 32.").queue();
@@ -46,7 +48,7 @@ public class Sorter extends ListenerAdapter {
         } else {
             event.reply("The minimum amount of elements is 1.").queue();
             return;
-        }
+        }*/
 
         if (elements.isEmpty()) {
             fillArrayList();
