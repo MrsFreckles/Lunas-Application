@@ -2,6 +2,7 @@ package net.lunapp.commands;
 
 import com.github.twitch4j.TwitchClient;
 import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
@@ -357,7 +358,12 @@ public class Gemini extends ListenerAdapter {
             String prompt = event.getOption("prompt", OptionMapping::getAsString);
             String role = event.getOption("role", OptionMapping::getAsString);
             event.deferReply().addActionRow(Button.danger("cancel_ask", "Cancel")).queue();
-            String channelId = event.getChannel().getId();
+            String channelId;
+            if (event.getChannelType().isGuild()) {
+                channelId = event.getGuildChannel().getId();
+            } else {
+                channelId = event.getChannel().getId();
+            }
             String timestamp = event.getTimeCreated().toString();
             handleAsk(prompt, role, channelId, timestamp, responseText -> {
                 String[] parts = splitString(responseText, 2000);
